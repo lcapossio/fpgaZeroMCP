@@ -1,0 +1,28 @@
+{
+  "name": "uart",
+  "version": "master",
+  "description": "A simple implementation of a UART modem in Verilog.",
+  "author": "ben-marshall",
+  "license": "MIT",
+  "language": "verilog",
+  "category": "communication",
+  "tags": [
+    "fpga",
+    "hardware",
+    "uart",
+    "uart-verilog",
+    "verilog",
+    "verilog-hdl"
+  ],
+  "parameters": {},
+  "ports": {},
+  "files": [
+    "rtl/impl_top.v",
+    "rtl/uart_rx.v",
+    "rtl/uart_tx.v",
+    "test/tb.v",
+    "test/tb_rx.v",
+    "test/tb_tx.v"
+  ],
+  "source": "https://github.com/ben-marshall/uart"
+}

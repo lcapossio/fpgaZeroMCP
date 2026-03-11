@@ -1,0 +1,34 @@
+{
+  "name": "fifo",
+  "version": "1.0.0",
+  "description": "Synchronous FIFO with configurable width and depth. Supports simultaneous read/write.",
+  "author": "fpgaZeroMCP community",
+  "license": "MIT",
+  "language": "verilog",
+  "category": "memory",
+  "tags": ["fifo", "memory", "buffer", "queue"],
+  "parameters": {
+    "DATA_WIDTH": {
+      "type": "integer",
+      "default": 8,
+      "description": "Width of each FIFO word in bits"
+    },
+    "DEPTH": {
+      "type": "integer",
+      "default": 16,
+      "description": "Number of entries; must be a power of 2"
+    }
+  },
+  "ports": {
+    "clk":     { "direction": "input",  "width": 1,              "description": "System clock" },
+    "rst_n":   { "direction": "input",  "width": 1,              "description": "Active-low synchronous reset" },
+    "wr_en":   { "direction": "input",  "width": 1,              "description": "Write enable" },
+    "wr_data": { "direction": "input",  "width": "DATA_WIDTH",   "description": "Write data" },
+    "rd_en":   { "direction": "input",  "width": 1,              "description": "Read enable" },
+    "rd_data": { "direction": "output", "width": "DATA_WIDTH",   "description": "Read data (registered, available next cycle)" },
+    "full":    { "direction": "output", "width": 1,              "description": "FIFO full flag" },
+    "empty":   { "direction": "output", "width": 1,              "description": "FIFO empty flag" },
+    "count":   { "direction": "output", "width": "log2(DEPTH)+1","description": "Number of entries currently stored" }
+  },
+  "files": ["fifo.v"]
+}

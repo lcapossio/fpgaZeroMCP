@@ -1,0 +1,34 @@
+{
+  "name": "uart_tx",
+  "version": "1.0.0",
+  "description": "Simple UART transmitter with configurable data width and baud rate",
+  "author": "fpgaZeroMCP community",
+  "license": "MIT",
+  "language": "verilog",
+  "category": "communication",
+  "tags": ["uart", "serial", "communication", "tx"],
+  "parameters": {
+    "DATA_WIDTH": {
+      "type": "integer",
+      "default": 8,
+      "minimum": 5,
+      "maximum": 9,
+      "description": "Data bits per UART frame"
+    },
+    "CLKS_PER_BIT": {
+      "type": "integer",
+      "default": 868,
+      "description": "System clock cycles per UART bit period (sys_clk_hz / baud_rate)"
+    }
+  },
+  "ports": {
+    "clk":        { "direction": "input",  "width": 1,            "description": "System clock" },
+    "rst_n":      { "direction": "input",  "width": 1,            "description": "Active-low synchronous reset" },
+    "i_tx_dv":    { "direction": "input",  "width": 1,            "description": "Data valid strobe (assert for 1 cycle to start TX)" },
+    "i_tx_byte":  { "direction": "input",  "width": "DATA_WIDTH", "description": "Byte to transmit" },
+    "o_tx_active":{ "direction": "output", "width": 1,            "description": "High while transmitting" },
+    "o_tx_serial":{ "direction": "output", "width": 1,            "description": "UART serial output line" },
+    "o_tx_done":  { "direction": "output", "width": 1,            "description": "Pulses high for one cycle when transmission is complete" }
+  },
+  "files": ["uart_tx.v"]
+}

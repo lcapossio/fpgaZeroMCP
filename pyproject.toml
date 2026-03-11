@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fpgazero-mcp"
+version = "0.1.0"
+description = "fpgaZeroMCP - Tools and IP cores for FPGA design via Model Context Protocol"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+fpgazero-mcp = "server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools", "registry"]
