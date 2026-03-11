@@ -33,7 +33,7 @@ def test_import_core_rejects_non_mit(monkeypatch) -> None:
     tmp_path = _mk_tmp_dir()
     result = gh.import_core("owner/repo", dest_parent=tmp_path)
     assert "error" in result
-    assert "not MIT" in result["error"]
+    assert "not in the allowed list" in result["error"]
 
 
 def test_import_core_preserves_paths(monkeypatch) -> None:
