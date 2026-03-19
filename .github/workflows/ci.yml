@@ -35,7 +35,7 @@ jobs:
   integration:
     name: Integration tests (OSS CAD Suite)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - uses: actions/checkout@v4

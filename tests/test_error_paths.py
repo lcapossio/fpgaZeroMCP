@@ -18,6 +18,7 @@ from tools.lint import lint_hdl
 from registry.fusesoc import capi2_to_manifest_dict, _parse_name, _collect_hdl_files, _collect_parameters
 import registry.github as gh
 from tools.litex import _build_litex_cmd
+from tools.simulate import _find_vhdl_entity
 from server import _clamp_timeout
 
 
@@ -334,3 +335,39 @@ class TestClampTimeout:
 
     def test_non_int_returns_default(self) -> None:
         assert _clamp_timeout("fast", 120) == 120  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# VHDL entity finder
+# ---------------------------------------------------------------------------
+
+class TestFindVhdlEntity:
+    def test_simple_entity(self) -> None:
+        code = "entity my_tb is\nend entity my_tb;"
+        assert _find_vhdl_entity(code) == "my_tb"
+
+    def test_case_insensitive(self) -> None:
+        code = "ENTITY Tb_Top IS\nEND ENTITY Tb_Top;"
+        assert _find_vhdl_entity(code) == "Tb_Top"
+
+    def test_no_entity_returns_none(self) -> None:
+        assert _find_vhdl_entity("-- just a comment") is None
+
+    def test_picks_first_entity(self) -> None:
+        code = "entity design is\nend entity;\nentity tb is\nend entity;"
+        assert _find_vhdl_entity(code) == "design"
+
+
+# ---------------------------------------------------------------------------
+# VHDL simulate error paths
+# ---------------------------------------------------------------------------
+
+class TestSimulateVhdlErrors:
+    def test_missing_entity_in_testbench(self) -> None:
+        result = simulate(
+            "-- design",
+            "-- testbench with no entity",
+            language="vhdl",
+        )
+        assert result["success"] is False
+        assert "entity" in result.get("error", "").lower()

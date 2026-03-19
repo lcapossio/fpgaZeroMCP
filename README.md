@@ -1,5 +1,6 @@
 # fpgaZeroMCP
 
+[![CI](https://github.com/lcapossio/fpgaZeroMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/lcapossio/fpgaZeroMCP/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![MCP](https://img.shields.io/badge/MCP-compatible-green)
@@ -152,7 +153,7 @@ Add to your MCP settings (Settings → MCP Servers):
 
 | Tool | Description |
 |---|---|
-| `simulate` | Compile and run testbenches via Icarus Verilog (iverilog + vvp) |
+| `simulate` | Compile and run testbenches — Icarus Verilog (V/SV) or GHDL (VHDL) |
 | `synthesize` | Yosys synthesis with resource stats — see [targets](#synthesis-targets) |
 | `place_and_route` | Yosys + nextpnr in one step — returns max frequency, critical path, utilization |
 

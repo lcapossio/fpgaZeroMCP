@@ -101,3 +101,43 @@ def test_place_and_route_ice40() -> None:
         timeout=30,
     )
     assert result.get("stage") == "place_and_route"
+
+
+@pytest.mark.integration
+def test_simulate_vhdl_ghdl() -> None:
+    if not _have("ghdl"):
+        pytest.skip("ghdl not installed")
+    design = (
+        "library ieee;\n"
+        "use ieee.std_logic_1164.all;\n"
+        "entity inverter is\n"
+        "  port (a : in std_logic; y : out std_logic);\n"
+        "end entity;\n"
+        "architecture rtl of inverter is\n"
+        "begin\n"
+        "  y <= not a;\n"
+        "end architecture;\n"
+    )
+    tb = (
+        "library ieee;\n"
+        "use ieee.std_logic_1164.all;\n"
+        "entity tb_inverter is\n"
+        "end entity;\n"
+        "architecture sim of tb_inverter is\n"
+        "  signal a, y : std_logic;\n"
+        "begin\n"
+        "  dut: entity work.inverter port map(a => a, y => y);\n"
+        "  process begin\n"
+        "    a <= '0'; wait for 1 ns;\n"
+        "    assert y = '1' report \"FAIL: y should be 1\" severity failure;\n"
+        "    a <= '1'; wait for 1 ns;\n"
+        "    assert y = '0' report \"FAIL: y should be 0\" severity failure;\n"
+        "    report \"PASS\";\n"
+        "    wait;\n"
+        "  end process;\n"
+        "end architecture;\n"
+    )
+    result = simulate(design, tb, language="vhdl", timeout=10)
+    assert result.get("success") is True
+    assert result.get("tool") == "ghdl"
+    assert "PASS" in result.get("stdout", "") + result.get("stderr", "")

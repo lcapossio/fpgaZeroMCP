@@ -149,15 +149,21 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="simulate",
             description=(
-                "Compile and simulate Verilog using Icarus Verilog (iverilog + vvp). "
+                "Compile and simulate HDL using Icarus Verilog (iverilog + vvp) or GHDL (VHDL). "
                 "Provide the design source and a separate testbench. "
-                "Returns all $display/$monitor output and any runtime errors."
+                "Returns all $display/$monitor output (Verilog) or report output (VHDL) and any runtime errors."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":      {"type": "string", "description": "Verilog design source"},
-                    "testbench": {"type": "string", "description": "Verilog testbench source"},
+                    "code":      {"type": "string", "description": "HDL design source"},
+                    "testbench": {"type": "string", "description": "HDL testbench source"},
+                    "language": {
+                        "type": "string",
+                        "enum": ["verilog", "systemverilog", "vhdl"],
+                        "default": "verilog",
+                        "description": "HDL language variant",
+                    },
                     "timeout":   {"type": "integer", "default": 60, "description": "Timeout in seconds"},
                 },
                 "required": ["code", "testbench"],
@@ -452,6 +458,7 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     simulate,
                     code=arguments["code"],
                     testbench=arguments["testbench"],
+                    language=arguments.get("language", "verilog"),
                     timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
                 )
             case "search_github_cores":
