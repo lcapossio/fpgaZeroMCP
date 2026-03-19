@@ -20,6 +20,15 @@ from tools.synthesize import synthesize
 app = Server("fpgaZeroMCP")
 registry = CoreRegistry()
 
+_MAX_TIMEOUT = 3600  # 1 hour hard cap
+
+
+def _clamp_timeout(value: int, default: int) -> int:
+    """Clamp timeout to a sane range [1, _MAX_TIMEOUT]."""
+    if not isinstance(value, int) or value < 1:
+        return default
+    return min(value, _MAX_TIMEOUT)
+
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -403,7 +412,7 @@ async def handle_list_tools() -> list[types.Tool]:
 # ---------------------------------------------------------------------------
 
 @app.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
     try:
         match name:
             case "lint_hdl":
@@ -422,7 +431,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
-                    timeout=arguments.get("timeout", 120),
+                    timeout=_clamp_timeout(arguments.get("timeout", 120), 120),
                 )
             case "place_and_route":
                 result = await asyncio.to_thread(
@@ -433,7 +442,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                     device=arguments["device"],
                     package=arguments.get("package", ""),
                     constraints=arguments.get("constraints", ""),
-                    timeout=arguments.get("timeout", 300),
+                    timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
@@ -443,7 +452,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                     simulate,
                     code=arguments["code"],
                     testbench=arguments["testbench"],
-                    timeout=arguments.get("timeout", 60),
+                    timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
                 )
             case "search_github_cores":
                 from registry.github import search_repos
@@ -497,7 +506,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                     board=arguments["board"],
                     args=arguments.get("args"),
                     output_dir=arguments.get("output_dir"),
-                    timeout=arguments.get("timeout", 600),
+                    timeout=_clamp_timeout(arguments.get("timeout", 600), 600),
                 )
             case "litex_soc":
                 result = await asyncio.to_thread(
@@ -505,24 +514,35 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                     board=arguments["board"],
                     args=arguments.get("args"),
                     output_dir=arguments.get("output_dir"),
-                    timeout=arguments.get("timeout", 300),
+                    timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
                 )
             case "litex_flow":
                 result = await asyncio.to_thread(
                     litex_flow,
                     board=arguments["board"],
                     args=arguments.get("args"),
-                    timeout=arguments.get("timeout", 600),
+                    timeout=_clamp_timeout(arguments.get("timeout", 600), 600),
                 )
             case _:
                 result = {"error": f"Unknown tool: '{name}'"}
 
-        return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+        text = json.dumps(result, indent=2)
+        is_err = isinstance(result, dict) and "error" in result
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=text)],
+            isError=is_err,
+        )
 
     except KeyError as exc:
-        return [types.TextContent(type="text", text=json.dumps({"error": f"Missing required argument: {exc}"}))]
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps({"error": f"Missing required argument: {exc}"}))],
+            isError=True,
+        )
     except Exception as exc:
-        return [types.TextContent(type="text", text=json.dumps({"error": str(exc)}))]
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps({"error": str(exc)}))],
+            isError=True,
+        )
 
 
 # ---------------------------------------------------------------------------

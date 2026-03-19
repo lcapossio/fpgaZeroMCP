@@ -6,7 +6,8 @@ import json
 import os
 import re
 import subprocess
-import tempfile
+
+from tools.workspace import temporary_workspace
 
 SYNTH_CMDS: dict[str, str] = {
     "generic": "synth",
@@ -54,12 +55,12 @@ def synthesize(
     if top_err:
         return {"success": False, "error": top_err}
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with temporary_workspace("synth_") as tmpdir:
         src       = os.path.join(tmpdir, "design.v")
         out_json  = os.path.join(tmpdir, "synth.json")
         ys_script = os.path.join(tmpdir, "synth.ys")
 
-        with open(src, "w") as f:
+        with open(src, "w", encoding="utf-8") as f:
             f.write(code)
 
         # Yosys expects forward slashes even on Windows
@@ -71,7 +72,7 @@ def synthesize(
             f"{synth_cmd} -top {top_module} -json {out_json_yosys}\n"
             f"stat\n"
         )
-        with open(ys_script, "w") as f:
+        with open(ys_script, "w", encoding="utf-8") as f:
             f.write(script)
 
         try:
@@ -98,4 +99,4 @@ def synthesize(
         except FileNotFoundError:
             return {"success": False, "error": "'yosys' not found. Install it and ensure it is on PATH."}
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": "Synthesis timed out after 120 s."}
+            return {"success": False, "error": f"Synthesis timed out after {timeout} s."}

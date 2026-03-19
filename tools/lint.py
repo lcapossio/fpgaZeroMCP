@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import subprocess
-import tempfile
+
+from tools.workspace import temporary_workspace
 
 
 def lint_hdl(
@@ -20,11 +21,11 @@ def lint_hdl(
     }
     suffix = suffix_map.get(language, ".v")
 
-    with tempfile.NamedTemporaryFile(suffix=suffix, mode="w", delete=False) as f:
-        f.write(code)
-        tmpfile = f.name
+    with temporary_workspace("lint_") as tmpdir:
+        tmpfile = os.path.join(tmpdir, f"lint{suffix}")
+        with open(tmpfile, "w", encoding="utf-8") as f:
+            f.write(code)
 
-    try:
         if language == "vhdl":
             cmd = ["ghdl", "-a", "--std=08", tmpfile]
         elif language == "systemverilog":
@@ -32,7 +33,16 @@ def lint_hdl(
         else:
             cmd = ["iverilog", "-tnull", tmpfile]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except FileNotFoundError:
+            tool = "ghdl" if language == "vhdl" else "iverilog"
+            return {
+                "success": False,
+                "error": f"'{tool}' not found. Install it and ensure it is on PATH.",
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Lint timed out after 30 s."}
 
         output = {
             "success": result.returncode == 0,
@@ -44,14 +54,3 @@ def lint_hdl(
         if result.returncode == 0:
             output["message"] = "No errors found."
         return output
-
-    except FileNotFoundError:
-        tool = "ghdl" if language == "vhdl" else "iverilog"
-        return {
-            "success": False,
-            "error": f"'{tool}' not found. Install it and ensure it is on PATH.",
-        }
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Lint timed out after 30 s."}
-    finally:
-        os.unlink(tmpfile)

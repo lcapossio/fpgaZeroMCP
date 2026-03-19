@@ -2,15 +2,24 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+from tools.workspace import temporary_workspace
+
+_BOARD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 
 def _build_litex_cmd(board: str, args: list[str] | None) -> list[str]:
     if not board:
         raise ValueError("board is required")
+    if not _BOARD_RE.fullmatch(board):
+        raise ValueError(
+            f"Invalid board name '{board}'. "
+            "Must be a valid Python module path (letters, digits, underscores, dots)."
+        )
     return [sys.executable, "-m", f"litex_boards.targets.{board}"] + (args or [])
 
 
@@ -39,8 +48,12 @@ def litex_build(
     timeout: int = 600,
 ) -> dict:
     """Run LiteX board target with --build. Returns logs and output directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        out_dir = Path(output_dir) if output_dir else Path(tmpdir) / "build"
+    with temporary_workspace("litex_build_") as tmpdir:
+        if output_dir:
+            out_dir = Path(output_dir)
+        else:
+            # Use a persistent directory so build artifacts survive temp cleanup
+            out_dir = Path.cwd() / "no_commit" / "litex_build" / board
         out_dir.mkdir(parents=True, exist_ok=True)
 
         build_args = list(args or [])
@@ -61,8 +74,12 @@ def litex_soc(
     timeout: int = 300,
 ) -> dict:
     """Generate LiteX SoC without building gateware."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        out_dir = Path(output_dir) if output_dir else Path(tmpdir) / "soc"
+    with temporary_workspace("litex_soc_") as tmpdir:
+        if output_dir:
+            out_dir = Path(output_dir)
+        else:
+            # Use a persistent directory so SoC artifacts survive temp cleanup
+            out_dir = Path.cwd() / "no_commit" / "litex_soc" / board
         out_dir.mkdir(parents=True, exist_ok=True)
 
         soc_args = list(args or [])

@@ -18,8 +18,9 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import tempfile
 from pathlib import Path
+
+from tools.workspace import temporary_workspace
 
 HDL_SUFFIX = {
     "verilog":       ".v",
@@ -40,13 +41,11 @@ def get_diagnostics(code: str, language: str = "verilog") -> dict:
     """
     suffix = HDL_SUFFIX.get(language, ".v")
 
-    with tempfile.NamedTemporaryFile(
-        suffix=suffix, mode="w", encoding="utf-8", delete=False
-    ) as f:
-        f.write(code)
-        tmpfile = f.name
+    with temporary_workspace("diag_") as tmpdir:
+        tmpfile = os.path.join(tmpdir, f"diag{suffix}")
+        with open(tmpfile, "w", encoding="utf-8") as f:
+            f.write(code)
 
-    try:
         if language == "vhdl":
             return _ghdl_diagnostics(tmpfile)
         result = _verilator_diagnostics(tmpfile, language)
@@ -54,8 +53,6 @@ def get_diagnostics(code: str, language: str = "verilog") -> dict:
             # Verilator missing — try Verible
             return _verible_lint(tmpfile)
         return result
-    finally:
-        os.unlink(tmpfile)
 
 
 def format_hdl(code: str, language: str = "verilog") -> dict:
@@ -66,18 +63,14 @@ def format_hdl(code: str, language: str = "verilog") -> dict:
     """
     suffix = HDL_SUFFIX.get(language, ".v")
 
-    with tempfile.NamedTemporaryFile(
-        suffix=suffix, mode="w", encoding="utf-8", delete=False
-    ) as f:
-        f.write(code)
-        tmpfile = f.name
+    with temporary_workspace("fmt_") as tmpdir:
+        tmpfile = os.path.join(tmpdir, f"fmt{suffix}")
+        with open(tmpfile, "w", encoding="utf-8") as f:
+            f.write(code)
 
-    try:
         if language == "vhdl":
             return _vsg_format(tmpfile, code)
         return _verible_format(tmpfile, code)
-    finally:
-        os.unlink(tmpfile)
 
 
 # ---------------------------------------------------------------------------

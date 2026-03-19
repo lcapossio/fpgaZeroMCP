@@ -3,20 +3,34 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
 from pathlib import Path
 
 import httpx
 
+LOG = logging.getLogger(__name__)
+
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+
 GITHUB_API = "https://api.github.com"
 GITHUB_RAW = "https://raw.githubusercontent.com"
 
-_HEADERS = {
-    "Accept": "application/vnd.github+json",
-    "User-Agent": "fpgaZeroMCP/0.1",
-    "X-GitHub-Api-Version": "2022-11-28",
-}
+def _build_headers() -> dict[str, str]:
+    hdrs = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "fpgaZeroMCP/0.1",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token:
+        hdrs["Authorization"] = f"Bearer {token}"
+    return hdrs
+
+_HEADERS = _build_headers()
 
 # ---------------------------------------------------------------------------
 # Allowed licenses
@@ -54,19 +68,45 @@ _CATEGORY_KEYWORDS = {
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _request(
+    url: str,
+    *,
+    params: dict | None = None,
+    headers: dict | None = None,
+    timeout: int = 15,
+) -> httpx.Response:
+    """HTTP GET with retry and exponential backoff for transient errors."""
+    hdrs = headers or _HEADERS
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.get(url, headers=hdrs, params=params)
+                if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                    delay = 2 ** attempt
+                    LOG.debug("GitHub %d, retrying in %ds", resp.status_code, delay)
+                    time.sleep(delay)
+                    continue
+                resp.raise_for_status()
+                return resp
+        except httpx.TransportError as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise
+    raise last_exc  # type: ignore[misc]
+
+
 def _get(url: str, params: dict | None = None) -> dict | list:
-    with httpx.Client(timeout=15) as client:
-        resp = client.get(url, headers=_HEADERS, params=params)
-        resp.raise_for_status()
-        return resp.json()
+    return _request(url, params=params).json()
 
 
 def _download_raw(owner: str, repo: str, path: str, ref: str) -> str:
     url = f"{GITHUB_RAW}/{owner}/{repo}/{ref}/{path}"
-    with httpx.Client(timeout=30) as client:
-        resp = client.get(url, headers={"User-Agent": "fpgaZeroMCP/0.1"})
-        resp.raise_for_status()
-        return resp.text
+    return _request(
+        url, headers={"User-Agent": "fpgaZeroMCP/0.1"}, timeout=30,
+    ).text
 
 
 def _fetch_tree(owner: str, repo: str, ref: str) -> list[dict]:
@@ -108,7 +148,7 @@ def _dominant_language(hdl_paths: list[str]) -> str:
     for p in hdl_paths:
         ext = Path(p).suffix.lower()
         counts[ext] = counts.get(ext, 0) + 1
-    dominant = max(counts, key=counts.get) if counts else ".v"
+    dominant = max(counts, key=counts.__getitem__) if counts else ".v"
     return {".v": "verilog", ".sv": "systemverilog",
             ".vhd": "vhdl", ".vhdl": "vhdl"}.get(dominant, "verilog")
 
@@ -134,6 +174,8 @@ def search_repos(
         })
     except httpx.HTTPStatusError as e:
         return [{"error": f"GitHub API error {e.response.status_code}: {e.response.text}"}]
+    except httpx.TransportError as e:
+        return [{"error": f"GitHub API connection error: {e}"}]
 
     results = []
     for item in data.get("items", [])[:max_results]:
@@ -204,7 +246,9 @@ def import_core(
         try:
             raw = _download_raw(owner, repo, core_paths[0], ref)
             from registry.fusesoc import capi2_to_manifest_dict
-            fuse_manifest = capi2_to_manifest_dict(raw, source=f"https://github.com/{owner_repo}")
+            fuse_manifest = capi2_to_manifest_dict(
+                raw, source=f"https://github.com/{owner_repo}", license=license_id,
+            )
         except Exception:
             pass  # non-fatal
 

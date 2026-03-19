@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 import subprocess
-import tempfile
+
+from tools.workspace import temporary_workspace
 
 
 def simulate(code: str, testbench: str, timeout: int = 60) -> dict:
     """Compile and run a Verilog simulation using Icarus Verilog (iverilog + vvp)."""
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with temporary_workspace("sim_") as tmpdir:
         design_file = os.path.join(tmpdir, "design.v")
         tb_file     = os.path.join(tmpdir, "testbench.v")
         out_file    = os.path.join(tmpdir, "sim.vvp")

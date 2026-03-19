@@ -18,8 +18,10 @@ HDL_EXTS = {".v": "verilog", ".sv": "systemverilog",
 
 
 def _parse_capi2(content: str) -> dict:
-    """Strip the CAPI=2: header and parse the remaining YAML."""
-    lines = [l for l in content.splitlines() if not l.startswith("CAPI=")]
+    """Strip the CAPI=2: header line and parse the remaining YAML."""
+    lines = content.splitlines()
+    if lines and lines[0].startswith("CAPI="):
+        lines = lines[1:]
     return yaml.safe_load("\n".join(lines)) or {}
 
 
@@ -51,7 +53,7 @@ def _collect_hdl_files(filesets: dict) -> tuple[list[str], str]:
             fname = entry if isinstance(entry, str) else next(iter(entry))
             ext   = Path(fname).suffix.lower()
             if ext in HDL_EXTS:
-                files.append(Path(fname).name)
+                files.append(fname)
                 lang = HDL_EXTS[ext]
                 lang_votes[lang] = lang_votes.get(lang, 0) + 1
 
@@ -71,7 +73,7 @@ def _collect_hdl_files(filesets: dict) -> tuple[list[str], str]:
             seen.add(f)
             unique.append(f)
 
-    language = max(lang_votes, key=lang_votes.get) if lang_votes else "verilog"
+    language = max(lang_votes, key=lang_votes.__getitem__) if lang_votes else "verilog"
     return unique, language
 
 
@@ -83,15 +85,23 @@ def _collect_parameters(raw: dict | None) -> dict:
     for pname, pdata in raw.items():
         dtype   = pdata.get("datatype", "int")
         default = pdata.get("default", 0)
+        if dtype in ("int", "intval"):
+            ptype = "integer"
+        elif dtype in ("bool",):
+            ptype = "boolean"
+        else:
+            ptype = "string"
         result[pname] = {
-            "type":        "integer" if dtype in ("int", "intval") else "string",
+            "type":        ptype,
             "default":     default,
             "description": pdata.get("description", ""),
         }
     return result
 
 
-def capi2_to_manifest_dict(content: str, source: str = "") -> dict | None:
+def capi2_to_manifest_dict(
+    content: str, source: str = "", license: str = "",
+) -> dict | None:
     """
     Parse a CAPI2 .core file and return a core.json-compatible dict.
     Returns None if parsing fails.
@@ -116,7 +126,7 @@ def capi2_to_manifest_dict(content: str, source: str = "") -> dict | None:
         "version":     version,
         "description": description,
         "author":      "",
-        "license":     "MIT",
+        "license":     license or "MIT",
         "language":    language,
         "category":    "uncategorized",
         "tags":        tags,

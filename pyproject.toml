@@ -11,6 +11,7 @@ dependencies = [
     "mcp>=1.0.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -21,3 +22,7 @@ fpgazero-mcp = "server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tools", "registry"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"server.py" = "server.py"
+"cores" = "cores"

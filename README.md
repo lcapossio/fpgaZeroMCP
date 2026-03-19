@@ -21,6 +21,8 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a design, or
 - [Synthesis Targets](#synthesis-targets)
 - [LiteX](#litex)
 - [Local Core Repositories](#local-core-repositories)
+- [Testing](#testing)
+- [Environment Variables](#environment-variables)
 - [Standalone / Scripting](#standalone--scripting)
 - [core.json Schema](#corejson-schema)
 - [License](#license)
@@ -36,7 +38,7 @@ Your AI assistant  <-->  fpgaZeroMCP (stdio MCP server)  <-->  OSS tools
                            (uart_tx, fifo + any imported)
 ```
 
-The MCP server runs as a local subprocess. Your AI calls tools on it over JSON-RPC (stdio). The server shells out to Yosys, nextpnr, iverilog, Verilator, and others from OSS CAD Suite — and can pull any MIT-licensed FPGA core directly from GitHub.
+The MCP server runs as a local subprocess. Your AI calls tools on it over JSON-RPC (stdio). The server shells out to Yosys, nextpnr, iverilog, Verilator, and others from OSS CAD Suite — and can pull open-source FPGA cores directly from GitHub.
 
 ---
 
@@ -49,6 +51,20 @@ The MCP server runs as a local subprocess. Your AI calls tools on it over JSON-R
 | [LiteX](https://github.com/enjoy-digital/litex) + [litex-boards](https://github.com/litex-hub/litex-boards) | Optional — only needed for LiteX tools |
 
 Add OSS CAD Suite to your `PATH` after installing. All tool wrappers degrade gracefully if a tool is missing.
+
+### GitHub API access
+
+GitHub API requests are unauthenticated by default and subject to rate limits. Set a personal access token to increase limits:
+
+```bash
+# Linux/macOS
+export GITHUB_TOKEN=ghp_...
+```
+
+```powershell
+# Windows (PowerShell)
+$env:GITHUB_TOKEN = "ghp_..."
+```
 
 ---
 
@@ -181,7 +197,7 @@ get_ip_core("picorv32")
 generate_ip("picorv32", {"COMPRESSED_ISA": 1})
 ```
 
-The server automatically uses FuseSoC CAPI2 metadata (`.core` files) when found in the repo, giving richer parameter and port information. Only MIT-licensed GitHub repos are accepted.
+The server automatically uses FuseSoC CAPI2 metadata (`.core` files) when found in the repo, giving richer parameter and port information. Only repos with an [allowed license](#allowed-licenses) are accepted.
 
 ### Contributing a core
 
@@ -287,6 +303,28 @@ $env:FPGAZERO_ALLOWED_LICENSES = "MIT,Apache-2.0"
 ```
 
 License IDs follow [SPDX notation](https://spdx.org/licenses/). The check is done at import time; `search_github_cores` returns results regardless of license so you can evaluate before importing.
+
+---
+
+## Testing
+
+```bash
+pip install -e ".[dev]"
+python -m pytest tests/ -v
+```
+
+Some tests require OSS CAD Suite tools on PATH. Tests that need missing tools are skipped automatically.
+
+---
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `GITHUB_TOKEN` | GitHub personal access token — raises API rate limits |
+| `USERCORES_PATH` | Extra core search directories (OS path separator delimited) |
+| `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
+| `FPGAZERO_TMPDIR` | Override temporary workspace root directory |
 
 ---
 

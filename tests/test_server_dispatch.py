@@ -22,5 +22,6 @@ def test_handle_call_tool_uses_to_thread(monkeypatch) -> None:
     result = asyncio.run(server.handle_call_tool("lint_hdl", {"code": "module m; endmodule"}))
     assert called == ["fake_lint_hdl"]
 
-    payload = json.loads(result[0].text)
+    payload = json.loads(result.content[0].text)
     assert payload["ok"] is True
+    assert result.isError is False

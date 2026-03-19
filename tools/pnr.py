@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import tempfile
 
 from tools.synthesize import SYNTH_CMDS, validate_top_module
+from tools.workspace import temporary_workspace
 
 # nextpnr binary per target
 NEXTPNR_BIN = {
@@ -67,16 +67,16 @@ def place_and_route(
 
     if target not in NEXTPNR_BIN:
         supported = list(NEXTPNR_BIN.keys())
-        return {"error": f"Unsupported PnR target '{target}'. Supported: {supported}"}
+        return {"success": False, "error": f"Unsupported PnR target '{target}'. Supported: {supported}"}
 
     synth_cmd = SYNTH_CMDS.get(target)
     if not synth_cmd:
-        return {"error": f"No Yosys synth command for target '{target}'"}
+        return {"success": False, "error": f"No Yosys synth command for target '{target}'"}
     top_err = validate_top_module(top_module)
     if top_err:
         return {"success": False, "error": top_err}
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with temporary_workspace("pnr_") as tmpdir:
         src_file     = os.path.join(tmpdir, "design.v")
         ys_script    = os.path.join(tmpdir, "synth.ys")
         netlist_json = os.path.join(tmpdir, "netlist.json")
@@ -94,7 +94,7 @@ def place_and_route(
             f"read_verilog {src_yosys}\n"
             f"{synth_cmd} -top {top_module} -json {netlist_yosys}\n"
         )
-        with open(ys_script, "w") as f:
+        with open(ys_script, "w", encoding="utf-8") as f:
             f.write(script)
 
         # ------------------------------------------------------------------
@@ -106,9 +106,9 @@ def place_and_route(
                 capture_output=True, text=True, timeout=120,
             )
         except FileNotFoundError:
-            return {"error": "'yosys' not found. Install OSS CAD Suite."}
+            return {"success": False, "error": "'yosys' not found. Install OSS CAD Suite."}
         except subprocess.TimeoutExpired:
-            return {"error": "Synthesis timed out after 120 s."}
+            return {"success": False, "error": "Synthesis timed out after 120 s."}
 
         if synth.returncode != 0:
             return {
@@ -120,7 +120,8 @@ def place_and_route(
 
         if not os.path.exists(netlist_json):
             return {"success": False, "stage": "synthesis",
-                    "error": "Yosys did not produce a netlist JSON."}
+                    "error": "Yosys did not produce a netlist JSON.",
+                    "stdout": synth.stdout, "stderr": synth.stderr}
 
         if constraints:
             with open(cst_file, "w", encoding="utf-8") as f:
@@ -139,9 +140,9 @@ def place_and_route(
                 cmd, capture_output=True, text=True, timeout=timeout,
             )
         except FileNotFoundError:
-            return {"error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite."}
+            return {"success": False, "error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite."}
         except subprocess.TimeoutExpired:
-            return {"error": f"Place and route timed out after {timeout} s."}
+            return {"success": False, "error": f"Place and route timed out after {timeout} s."}
 
         combined_output = pnr.stdout + pnr.stderr
 
