@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2025 Leonardo Capossio (bard0) <hello@bard0.com>
+# SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 """
 Standalone wrapper exposing fpgaZeroMCP's Verible LSP tools.

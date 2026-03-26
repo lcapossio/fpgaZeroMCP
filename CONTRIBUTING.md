@@ -22,7 +22,7 @@ This repo is the **MCP server infrastructure** — not an IP core library.
 ### Setup
 
 ```bash
-git clone https://github.com/your-org/fpgaZeroMCP
+git clone https://github.com/lcapossio/fpgaZeroMCP
 cd fpgaZeroMCP
 pip install -e .
 ```

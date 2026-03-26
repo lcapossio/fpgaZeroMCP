@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Leonardo Capossio (bard0) <hello@bard0.com>
+# SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
@@ -10,15 +10,17 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from registry.resolver import CoreRegistry
-from tools.lint import lint_hdl
+from tools.lint import lint_hdl, lint_project
 from tools.litex import litex_build, litex_flow, litex_soc
 from tools.lsp import format_hdl, get_diagnostics
 from tools.pnr import place_and_route
 from tools.simulate import simulate
 from tools.synthesize import synthesize
+from tools.build_manager import BuildManager
 
 app = Server("fpgaZeroMCP")
 registry = CoreRegistry()
+builds = BuildManager()
 
 _MAX_TIMEOUT = 3600  # 1 hour hard cap
 
@@ -56,6 +58,40 @@ async def handle_list_tools() -> list[types.Tool]:
                     "top_module": {"type": "string", "description": "Top-level module name (optional)"},
                 },
                 "required": ["code"],
+            },
+        ),
+        types.Tool(
+            name="lint_project",
+            description=(
+                "Lint multiple HDL files together so cross-module references resolve. "
+                "Pass a dict of filename→source pairs. All files are compiled in one invocation "
+                "of iverilog (Verilog/SystemVerilog) or ghdl (VHDL)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "object",
+                        "description": (
+                            "Mapping of filename to source code, "
+                            'e.g. {"uart_tx.v": "module uart_tx...", "top.v": "module top..."}'
+                        ),
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["verilog", "systemverilog", "vhdl"],
+                        "default": "verilog",
+                        "description": "HDL language variant",
+                    },
+                    "top_module": {"type": "string", "description": "Top-level module name (optional)"},
+                    "timeout": {
+                        "type": "integer",
+                        "default": 60,
+                        "description": "Timeout in seconds",
+                    },
+                },
+                "required": ["files"],
             },
         ),
         types.Tool(
@@ -410,6 +446,68 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["board"],
             },
         ),
+        types.Tool(
+            name="start_build",
+            description=(
+                "Start a long-running build command in the background. "
+                "Returns a build_id to check progress with build_status. "
+                "Use for synthesis, place-and-route, LiteX builds, or any command that takes minutes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cmd": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Command and arguments, e.g. ['yosys', '-s', 'synth.ys']",
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Human-readable label for this build (optional)",
+                    },
+                    "work_dir": {
+                        "type": "string",
+                        "description": "Working directory for the build (optional, defaults to project root)",
+                    },
+                },
+                "required": ["cmd"],
+            },
+        ),
+        types.Tool(
+            name="build_status",
+            description=(
+                "Check the progress of a background build. "
+                "Returns status (running/success/failed), elapsed time, and recent log output."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "build_id": {"type": "string", "description": "Build ID returned by start_build"},
+                    "tail_lines": {
+                        "type": "integer",
+                        "default": 30,
+                        "description": "Number of log lines to return from the end",
+                    },
+                },
+                "required": ["build_id"],
+            },
+        ),
+        types.Tool(
+            name="list_builds",
+            description="List all tracked builds (running and finished) with status summary.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="cancel_build",
+            description="Cancel a running background build.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "build_id": {"type": "string", "description": "Build ID to cancel"},
+                },
+                "required": ["build_id"],
+            },
+        ),
     ]
 
 
@@ -427,6 +525,14 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     code=arguments["code"],
                     language=arguments.get("language", "verilog"),
                     top_module=arguments.get("top_module"),
+                )
+            case "lint_project":
+                result = await asyncio.to_thread(
+                    lint_project,
+                    files=arguments["files"],
+                    language=arguments.get("language", "verilog"),
+                    top_module=arguments.get("top_module"),
+                    timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
                 )
             case "synthesize":
                 result = await asyncio.to_thread(
@@ -530,6 +636,21 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     args=arguments.get("args"),
                     timeout=_clamp_timeout(arguments.get("timeout", 600), 600),
                 )
+            case "start_build":
+                result = builds.start(
+                    cmd=arguments["cmd"],
+                    label=arguments.get("label", ""),
+                    work_dir=arguments.get("work_dir"),
+                )
+            case "build_status":
+                result = builds.status(
+                    build_id=arguments["build_id"],
+                    tail_lines=arguments.get("tail_lines", 30),
+                )
+            case "list_builds":
+                result = builds.list_builds()
+            case "cancel_build":
+                result = builds.cancel(build_id=arguments["build_id"])
             case _:
                 result = {"error": f"Unknown tool: '{name}'"}
 

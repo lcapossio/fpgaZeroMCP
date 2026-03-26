@@ -72,7 +72,7 @@ $env:GITHUB_TOKEN = "ghp_..."
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/fpgaZeroMCP
+git clone https://github.com/lcapossio/fpgaZeroMCP
 cd fpgaZeroMCP
 pip install -e .
 ```
@@ -145,7 +145,8 @@ Add to your MCP settings (Settings → MCP Servers):
 
 | Tool | Description |
 |---|---|
-| `lint_hdl` | Syntax/error check via iverilog (V/SV) or GHDL (VHDL) |
+| `lint_hdl` | Syntax/error check via iverilog (V/SV) or GHDL (VHDL) — single file |
+| `lint_project` | Lint multiple files together so cross-module references resolve |
 | `get_diagnostics` | Structured per-line diagnostics — Verilator → verible fallback (V/SV), GHDL (VHDL) |
 | `format_hdl` | Auto-format via verible-verilog-format (V/SV) or vsg (VHDL) |
 
@@ -175,6 +176,15 @@ Add to your MCP settings (Settings → MCP Servers):
 | `litex_build` | Run a LiteX board target with `--build` |
 | `litex_soc` | Generate a LiteX SoC without building gateware |
 | `litex_flow` | Run a LiteX board target with fully custom args |
+
+### Build management
+
+| Tool | Description |
+|---|---|
+| `start_build` | Start a long-running command in the background, returns a `build_id` |
+| `build_status` | Check progress — status, elapsed time, recent log output |
+| `list_builds` | List all tracked builds (running and finished) |
+| `cancel_build` | Kill a running background build |
 
 ---
 

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Leonardo Capossio (bard0) <hello@bard0.com>
+# SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 """Tests for error paths, edge cases, and input validation."""
 from __future__ import annotations
@@ -14,7 +14,9 @@ from registry.resolver import CoreRegistry
 from tools.synthesize import synthesize, validate_top_module
 from tools.pnr import place_and_route
 from tools.simulate import simulate
-from tools.lint import lint_hdl
+from tools.lint import lint_hdl, lint_project
+from tools.build_manager import BuildManager
+from tools.build_parser import parse_build_log
 from registry.fusesoc import capi2_to_manifest_dict, _parse_name, _collect_hdl_files, _collect_parameters
 import registry.github as gh
 from tools.litex import _build_litex_cmd
@@ -361,6 +363,328 @@ class TestFindVhdlEntity:
 # ---------------------------------------------------------------------------
 # VHDL simulate error paths
 # ---------------------------------------------------------------------------
+
+class TestLintProject:
+    def test_empty_files_returns_error(self) -> None:
+        result = lint_project({})
+        assert result["success"] is False
+        assert "No files" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Build manager
+# ---------------------------------------------------------------------------
+
+class TestBuildManager:
+    def test_start_and_status(self) -> None:
+        mgr = BuildManager()
+        # Use a fast command that exists on all platforms
+        result = mgr.start(cmd=["python", "-c", "print('hello')"], label="test")
+        assert result["success"] is True
+        bid = result["build_id"]
+
+        # Wait for it to finish
+        import time
+        for _ in range(20):
+            s = mgr.status(bid)
+            if s["status"] != "running":
+                break
+            time.sleep(0.1)
+
+        s = mgr.status(bid)
+        assert s["status"] == "success"
+        assert s["returncode"] == 0
+        assert "hello" in s["tail"]
+
+    def test_list_builds(self) -> None:
+        mgr = BuildManager()
+        mgr.start(cmd=["python", "-c", "pass"], label="list-test")
+        import time
+        time.sleep(0.5)
+        builds = mgr.list_builds()
+        assert len(builds) >= 1
+        assert builds[0]["label"] == "list-test"
+
+    def test_unknown_build_id(self) -> None:
+        mgr = BuildManager()
+        result = mgr.status("nonexistent")
+        assert "error" in result
+
+    def test_cancel_not_running(self) -> None:
+        mgr = BuildManager()
+        result = mgr.start(cmd=["python", "-c", "pass"], label="done")
+        import time
+        time.sleep(0.5)
+        cancel = mgr.cancel(result["build_id"])
+        assert "error" in cancel  # already finished
+
+    def test_command_not_found(self) -> None:
+        mgr = BuildManager()
+        result = mgr.start(cmd=["nonexistent_tool_xyz"])
+        assert result["success"] is False
+        assert "not found" in result["error"].lower() or "Command not found" in result["error"]
+
+    def test_clear_finished(self) -> None:
+        mgr = BuildManager()
+        mgr.start(cmd=["python", "-c", "pass"], label="clear-test")
+        import time
+        time.sleep(0.5)
+        result = mgr.clear_finished()
+        assert result["cleared"] >= 1
+
+
+class TestBuildParser:
+    def test_empty_log(self) -> None:
+        result = parse_build_log("")
+        assert result["phase"] == "starting"
+        assert result["tool"] == "unknown"
+        assert result["health"]["status"] == "ok"
+
+    def test_nextpnr_phases(self) -> None:
+        log = (
+            "Info: Packing design...\n"
+            "Info: Placed 42 cells\n"
+            "Info: HeAP Placer iteration 1\n"
+            "Info: Routing...\n"
+            "Info: Max frequency for clock 'clk': 142.34 MHz (PASS at 100.00 MHz)\n"
+        )
+        result = parse_build_log(log)
+        assert result["tool"] == "nextpnr"
+        assert "nextpnr_timing" in result["phase"]
+        assert any("packing" in p for p in result["phase_history"])
+        assert any("placing" in p for p in result["phase_history"])
+        assert any("routing" in p for p in result["phase_history"])
+        assert result["timing"]["fmax_mhz"] == 142.34
+        assert result["timing"]["met"] is True
+
+    def test_phase_detail_has_line_counts(self) -> None:
+        log = (
+            "Info: Packing design...\n"
+            "packed line 1\n"
+            "packed line 2\n"
+            "Info: HeAP Placer iteration 1\n"
+            "placed line 1\n"
+        )
+        result = parse_build_log(log)
+        assert "phase_detail" in result
+        assert all("lines" in d for d in result["phase_detail"])
+
+    def test_utilization_parsing(self) -> None:
+        log = "ICESTORM_LC:    42/ 1280     3%\nSB_IO:          3/  206     1%\n"
+        result = parse_build_log(log)
+        assert result["utilization"]["luts"]["used"] == 42
+        assert result["utilization"]["luts"]["total"] == 1280
+        assert result["utilization"]["ios"]["used"] == 3
+
+    def test_high_utilization_warning(self) -> None:
+        log = "LUT4:    4800/ 5000    96%\n"
+        result = parse_build_log(log)
+        assert result["health"]["status"] == "critical"
+        assert any("nearly full" in c for c in result["health"]["concerns"])
+
+    def test_wns_violation(self) -> None:
+        log = "WNS: -0.234 ns\n"
+        result = parse_build_log(log)
+        assert result["slack"]["wns_ns"] == -0.234
+        assert result["health"]["status"] == "critical"
+        assert any("timing violated" in c for c in result["health"]["concerns"])
+
+    def test_timing_fail(self) -> None:
+        log = "Max frequency for clock 'clk': 45.00 MHz (FAIL at 100.00 MHz)\n"
+        result = parse_build_log(log)
+        assert result["timing"]["met"] is False
+        assert result["health"]["status"] == "critical"
+
+    def test_congestion_unrouted(self) -> None:
+        log = "failed to route 12 nets\n"
+        result = parse_build_log(log)
+        assert result["congestion"]["unrouted_nets"] == 12
+        assert result["health"]["status"] == "critical"
+
+    def test_error_count_yosys(self) -> None:
+        log = "Yosys 0.40\nERROR: something broke\nWarning: something suspect\nWarning: another one\n"
+        result = parse_build_log(log)
+        assert result["tool"] == "yosys"
+        assert result["errors"] == 1
+        assert result["warnings"] == 2
+        assert result["health"]["status"] == "error"
+
+    def test_error_count_fallback(self) -> None:
+        log = "Error: something broke\nWarning: something suspect\n"
+        result = parse_build_log(log)
+        assert result["errors"] == 1
+        assert result["warnings"] == 1
+
+    def test_no_false_positive_errors(self) -> None:
+        # "0 Errors" or variable names should NOT count as errors
+        log = "Yosys 0.40\nTotal errors: 0\nmy_error_handler called\n"
+        result = parse_build_log(log)
+        assert result["errors"] == 0
+
+    def test_yosys_phases(self) -> None:
+        log = (
+            "Yosys 0.40\n"
+            "Parsing Verilog input...\n"
+            "Executing HIERARCHY pass\n"
+            "Executing SYNTH_ICE40 pass\n"
+            "Executing WRITE_JSON pass\n"
+        )
+        result = parse_build_log(log)
+        assert result["tool"] == "yosys"
+        assert "write_output" in result["phase"]
+        assert any("read_design" in p for p in result["phase_history"])
+        assert any("synthesis" in p for p in result["phase_history"])
+
+    def test_vivado_wns_tns(self) -> None:
+        log = "Vivado v2024.1\nWNS: 1.234 ns\nTNS: 0.000 ns\nWHS: 0.089 ns\nTHS: 0.000 ns\n"
+        result = parse_build_log(log)
+        assert result["slack"]["wns_ns"] == 1.234
+        assert result["slack"]["tns_ns"] == 0.0
+        assert result["slack"]["whs_ns"] == 0.089
+        assert result["health"]["status"] == "ok"
+
+    def test_vivado_phases(self) -> None:
+        log = (
+            "Vivado v2024.1\n"
+            "synth_design -top my_design\n"
+            "Phase 1 Synthesis\n"
+            "opt_design\n"
+            "place_design\n"
+            "phys_opt_design\n"
+            "route_design\n"
+            "report_timing_summary\n"
+            "write_bitstream my_design.bit\n"
+        )
+        result = parse_build_log(log)
+        assert result["tool"] == "vivado"
+        assert "vivado_write" in result["phase"]
+        assert any("synth" in p for p in result["phase_history"])
+        assert any("place" in p for p in result["phase_history"])
+        assert any("phys_opt" in p for p in result["phase_history"])
+        assert any("route" in p for p in result["phase_history"])
+        assert any("timing" in p for p in result["phase_history"])
+
+    def test_vivado_utilization_table(self) -> None:
+        log = (
+            "Vivado v2024.1\n"
+            "| Slice LUTs  |  1234 |  53200 |\n"
+            "| Slice Registers |  890 |  106400 |\n"
+            "| Block RAM Tile |  4.5 |  140 |\n"
+            "| DSPs  |  3 |  220 |\n"
+            "| Bonded IOB  |  12 |  200 |\n"
+        )
+        result = parse_build_log(log)
+        assert result["utilization"]["luts"]["used"] == 1234
+        assert result["utilization"]["luts"]["total"] == 53200
+        assert result["utilization"]["ffs"]["used"] == 890
+        assert result["utilization"]["brams"]["used"] == 4.5
+        assert result["utilization"]["dsps"]["used"] == 3
+        assert result["utilization"]["ios"]["used"] == 12
+
+    def test_quartus_phases(self) -> None:
+        log = (
+            "quartus_map --analysis\n"
+            "Analysis & Synthesis\n"
+            "quartus_fit starting\n"
+            "Fitter Placement\n"
+            "Fitter Routing\n"
+            "quartus_sta\n"
+            "quartus_asm\n"
+        )
+        result = parse_build_log(log)
+        assert result["tool"] == "quartus"
+        assert "quartus_asm" in result["phase"]
+        assert any("synth" in p for p in result["phase_history"])
+        assert any("fit" in p for p in result["phase_history"])
+        assert any("sta" in p for p in result["phase_history"])
+
+    def test_quartus_utilization(self) -> None:
+        log = (
+            "quartus_map\n"
+            "Total logic elements ; 1,234 / 33,216 ( 4 % )\n"
+            "Total registers ; 567 / 33,216 ( 2 % )\n"
+            "Total pins ; 42 / 475 ( 9 % )\n"
+            "Total memory bits ; 8,192 / 483,840 ( 2 % )\n"
+            "Total DSP blocks ; 2 / 70 ( 3 % )\n"
+            "Total PLLs ; 1 / 4 ( 25 % )\n"
+        )
+        result = parse_build_log(log)
+        assert result["utilization"]["les"]["used"] == 1234
+        assert result["utilization"]["les"]["total"] == 33216
+        assert result["utilization"]["ffs"]["used"] == 567
+        assert result["utilization"]["ios"]["used"] == 42
+        assert result["utilization"]["dsps"]["used"] == 2
+        assert result["utilization"]["plls"]["used"] == 1
+
+    def test_quartus_alm_utilization(self) -> None:
+        log = (
+            "quartus_fit\n"
+            "Total ALMs : 2,500 / 41,910 ( 6 % )\n"
+            "Total ALUTs : 3,200 / 83,820 ( 4 % )\n"
+            "Total dedicated registers : 4,100 / 83,820 ( 5 % )\n"
+            "M10K blocks : 12 / 553 ( 2 % )\n"
+            "MLABs : 34 / 2,200 ( 2 % )\n"
+        )
+        result = parse_build_log(log)
+        assert result["utilization"]["alms"]["used"] == 2500
+        assert result["utilization"]["aluts"]["used"] == 3200
+        assert result["utilization"]["ffs"]["used"] == 4100
+        assert result["utilization"]["brams"]["used"] == 12
+        assert result["utilization"]["mlabs"]["used"] == 34
+
+    def test_quartus_fmax(self) -> None:
+        log = (
+            "quartus_sta\n"
+            "Fmax : 142.34 MHz\n"
+            "Restricted Fmax : 100.00 MHz\n"
+        )
+        result = parse_build_log(log)
+        assert result["timing"]["fmax_mhz"] == 142.34
+        assert result["timing"]["restricted_fmax_mhz"] == 100.0
+
+    def test_quartus_setup_slack_violation(self) -> None:
+        log = "quartus_sta\nWorst-case setup slack : -0.123\n"
+        result = parse_build_log(log)
+        assert result["timing"]["setup_slack_ns"] == -0.123
+        assert result["health"]["status"] == "critical"
+        assert any("Setup slack" in c for c in result["health"]["concerns"])
+
+    def test_quartus_hold_slack_violation(self) -> None:
+        log = "quartus_sta\nWorst-case hold slack : -0.050\n"
+        result = parse_build_log(log)
+        assert result["timing"]["hold_slack_ns"] == -0.05
+        assert result["health"]["status"] == "critical"
+        assert any("Hold" in c for c in result["health"]["concerns"])
+
+    def test_quartus_routing_problems(self) -> None:
+        log = "quartus_fit\nRouting problems detected: 5\n"
+        result = parse_build_log(log)
+        assert result["congestion"]["unrouted_nets"] == 5
+        assert result["health"]["status"] == "critical"
+
+    def test_tool_auto_detection(self) -> None:
+        assert parse_build_log("Yosys 0.40\n")["tool"] == "yosys"
+        assert parse_build_log("Info: Device: ice40\n")["tool"] == "nextpnr"
+        assert parse_build_log("Vivado v2024.1\n")["tool"] == "vivado"
+        assert parse_build_log("quartus_map\n")["tool"] == "quartus"
+        assert parse_build_log("ghdl -a foo.vhd\n")["tool"] == "ghdl"
+        assert parse_build_log("some random output\n")["tool"] == "unknown"
+
+    def test_nextpnr_progress_tracking(self) -> None:
+        log = (
+            "Info: Packing...\n"
+            "Info: HeAP Placer iteration 1\n"
+            "at t = 1.0 cost = 100\n"
+            "at t = 0.5 cost = 80\n"
+            "at t = 0.1 cost = 60\n"
+            "Info: Routing...\n"
+            "Pass 1 completed, 5 net failures\n"
+            "Pass 2 completed, 0 net failures\n"
+        )
+        result = parse_build_log(log)
+        assert "progress" in result
+        assert result["progress"]["router_pass"] == 2
+
 
 class TestSimulateVhdlErrors:
     def test_missing_entity_in_testbench(self) -> None:

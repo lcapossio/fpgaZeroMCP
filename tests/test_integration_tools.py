@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Leonardo Capossio (bard0) <hello@bard0.com>
+# SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 import shutil
 from pathlib import Path
@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from tools.lint import lint_hdl
+from tools.lint import lint_hdl, lint_project
 from tools.lsp import get_diagnostics, format_hdl
 from tools.simulate import simulate
 from tools.synthesize import synthesize
@@ -41,6 +41,35 @@ def test_lint_verilog_iverilog() -> None:
         pytest.skip("iverilog not installed")
     result = lint_hdl(VERILOG_OK, language="verilog")
     assert result.get("success") is True
+
+
+@pytest.mark.integration
+def test_lint_project_cross_module() -> None:
+    if not _have("iverilog"):
+        pytest.skip("iverilog not installed")
+    sub_mod = "module sub(input wire a, output wire y); assign y = ~a; endmodule\n"
+    top_mod = (
+        "module top(input wire a, output wire y);\n"
+        "  sub u0(.a(a), .y(y));\n"
+        "endmodule\n"
+    )
+    result = lint_project({"sub.v": sub_mod, "top.v": top_mod}, top_module="top")
+    assert result.get("success") is True
+    assert len(result.get("files", [])) == 2
+
+
+@pytest.mark.integration
+def test_lint_project_missing_module() -> None:
+    if not _have("iverilog"):
+        pytest.skip("iverilog not installed")
+    # top references sub which is not provided — should fail
+    top_mod = (
+        "module top(input wire a, output wire y);\n"
+        "  sub u0(.a(a), .y(y));\n"
+        "endmodule\n"
+    )
+    result = lint_project({"top.v": top_mod}, top_module="top")
+    assert result.get("success") is False
 
 
 @pytest.mark.integration
