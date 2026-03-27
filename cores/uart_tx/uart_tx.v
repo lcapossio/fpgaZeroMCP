@@ -44,9 +44,9 @@ module uart_tx #(
             o_tx_serial <= 1'b1;
             o_tx_done   <= 1'b0;
             o_tx_active <= 1'b0;
-            r_clk_count <= '0;
-            r_bit_index <= '0;
-            r_tx_data   <= '0;
+            r_clk_count <= {CTR_W{1'b0}};
+            r_bit_index <= {BIT_W{1'b0}};
+            r_tx_data   <= {DATA_WIDTH{1'b0}};
         end else begin
             o_tx_done <= 1'b0;
 
@@ -54,8 +54,8 @@ module uart_tx #(
                 IDLE: begin
                     o_tx_serial <= 1'b1;
                     o_tx_active <= 1'b0;
-                    r_clk_count <= '0;
-                    r_bit_index <= '0;
+                    r_clk_count <= {CTR_W{1'b0}};
+                    r_bit_index <= {BIT_W{1'b0}};
                     if (i_tx_dv) begin
                         o_tx_active <= 1'b1;
                         r_tx_data   <= i_tx_byte;
@@ -65,24 +65,24 @@ module uart_tx #(
 
                 START: begin
                     o_tx_serial <= 1'b0;
-                    if (r_clk_count < CTR_W'(CLKS_PER_BIT - 1)) begin
+                    if (r_clk_count < CLKS_PER_BIT - 1) begin
                         r_clk_count <= r_clk_count + 1'b1;
                     end else begin
-                        r_clk_count <= '0;
+                        r_clk_count <= {CTR_W{1'b0}};
                         r_state     <= DATA;
                     end
                 end
 
                 DATA: begin
                     o_tx_serial <= r_tx_data[r_bit_index];
-                    if (r_clk_count < CTR_W'(CLKS_PER_BIT - 1)) begin
+                    if (r_clk_count < CLKS_PER_BIT - 1) begin
                         r_clk_count <= r_clk_count + 1'b1;
                     end else begin
-                        r_clk_count <= '0;
-                        if (r_bit_index < BIT_W'(DATA_WIDTH - 1)) begin
+                        r_clk_count <= {CTR_W{1'b0}};
+                        if (r_bit_index < DATA_WIDTH - 1) begin
                             r_bit_index <= r_bit_index + 1'b1;
                         end else begin
-                            r_bit_index <= '0;
+                            r_bit_index <= {BIT_W{1'b0}};
                             r_state     <= STOP;
                         end
                     end
@@ -90,10 +90,10 @@ module uart_tx #(
 
                 STOP: begin
                     o_tx_serial <= 1'b1;
-                    if (r_clk_count < CTR_W'(CLKS_PER_BIT - 1)) begin
+                    if (r_clk_count < CLKS_PER_BIT - 1) begin
                         r_clk_count <= r_clk_count + 1'b1;
                     end else begin
-                        r_clk_count <= '0;
+                        r_clk_count <= {CTR_W{1'b0}};
                         o_tx_done   <= 1'b1;
                         o_tx_active <= 1'b0;
                         r_state     <= IDLE;

@@ -13,7 +13,7 @@ This repo is the **MCP server infrastructure** — not an IP core library.
 | Bug fixes | |
 | Documentation | |
 
-**To share an IP core with the community:** publish it on GitHub with the `fpga` topic and an MIT (or compatible) license. Users can then pull it in with `import_github_core`. No PR needed here.
+**To share an IP core with the community:** publish it on GitHub with the `fpga` topic and a compatible open-source license. Users can then pull it in with `import_github_core`. No PR needed here.
 
 ---
 
@@ -24,11 +24,11 @@ This repo is the **MCP server infrastructure** — not an IP core library.
 ```bash
 git clone https://github.com/lcapossio/fpgaZeroMCP
 cd fpgaZeroMCP
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 Optional but recommended for testing tool wrappers:
-- [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) — iverilog, yosys, nextpnr
+- [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) — iverilog, yosys, nextpnr, verilator, ghdl
 
 ### Running the demo
 
@@ -36,22 +36,48 @@ Optional but recommended for testing tool wrappers:
 python example.py
 ```
 
+### Running tests
+
+```bash
+# Unit tests (no EDA tools required)
+pytest tests/ -v -m "not integration"
+
+# Integration tests (requires OSS CAD Suite on PATH)
+pytest tests/ -v -m "integration"
+
+# All tests
+pytest tests/ -v
+```
+
 ### Project structure
 
 ```
-server.py          MCP server entry point — tool definitions + dispatch
+server.py              MCP server entry point — tool definitions + dispatch
 tools/
-  lint.py          iverilog / ghdl wrapper
-  synthesize.py    Yosys wrapper
-  simulate.py      iverilog + vvp wrapper
+  lint.py              iverilog / ghdl linting (single file and multi-file)
+  synthesize.py        Yosys synthesis wrapper
+  simulate.py          iverilog + vvp / GHDL simulation
+  pnr.py               Yosys + nextpnr place-and-route pipeline
+  lsp.py               Verilator / Verible / GHDL diagnostics + formatting
+  litex.py             LiteX SoC framework wrappers
+  build_manager.py     Background build management (start/status/cancel)
+  build_parser.py      Single-pass build log parser (Yosys/nextpnr/Vivado/Quartus/GHDL)
+  workspace.py         Temporary workspace context manager
+  *.md                 Per-tool documentation
 registry/
-  manifest.py      Pydantic schema for core.json
-  resolver.py      Loads cores/, serves list/get/generate/import
-  github.py        GitHub search + download
-  fusesoc.py       FuseSoC CAPI2 parser
+  manifest.py          Pydantic schema for core.json
+  resolver.py          Loads cores/, serves list/get/generate/import
+  github.py            GitHub search + download with retry logic
+  fusesoc.py           FuseSoC CAPI2 parser
 cores/
-  uart_tx/         Reference core (demonstrates core.json format)
-  fifo/            Reference core
+  uart_tx/             Reference core (demonstrates core.json format)
+  fifo/                Reference core
+tests/
+  test_error_paths.py  Unit tests for error handling, validation, parsers
+  test_integration_tools.py  Integration tests (require EDA tools on PATH)
+  test_registry_basic.py     Registry load/list/get/generate tests
+  test_server_dispatch.py    MCP dispatch tests
+  test_github_import.py      GitHub import license/path tests
 ```
 
 ### Adding a new synthesis target
@@ -66,14 +92,18 @@ cores/
 1. Implement the logic in `tools/` or `registry/`
 2. Add a `types.Tool(...)` entry in `handle_list_tools()` in [server.py](server.py)
 3. Add a `case "tool_name":` in `handle_call_tool()` in [server.py](server.py)
+4. Add documentation in `tools/<name>.md`
+5. Add tests in `tests/`
 
 ### Pull request checklist
 
 - [ ] `python example.py` runs without errors
+- [ ] `pytest tests/ -v -m "not integration"` passes
 - [ ] New tools have a JSON schema (`inputSchema`) with descriptions on all fields
 - [ ] Required arguments are listed in `"required": [...]`
 - [ ] Tool wrappers return `{"error": "..."}` when the underlying binary is missing — never raise unhandled exceptions
 - [ ] README updated if the change is user-visible
+- [ ] Tool documentation added/updated in `tools/*.md`
 
 ---
 
@@ -82,8 +112,8 @@ cores/
 If you have an HDL module you want the community to use:
 
 1. Create a public GitHub repo
-2. Add the topic **`fpga`** to the repo (Settings → Topics)
-3. Set the license to **MIT** (or Apache-2.0, BSD-2-Clause)
+2. Add the topic **`fpga`** to the repo (Settings > Topics)
+3. Set the license to **MIT**, **BSD-2-Clause**, **Apache-2.0**, or another [compatible license](#allowed-licenses)
 4. Optionally add a FuseSoC CAPI2 `.core` file — this gives users richer parameter and port metadata automatically
 
 Once done, anyone running fpgaZeroMCP can pull your core in with:

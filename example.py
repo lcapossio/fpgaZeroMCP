@@ -5,12 +5,12 @@ example.py - Demonstrates fpgaZeroMCP capabilities directly.
 
 Run:  python example.py
 Requires: pip install -e .
-Optional: iverilog on PATH for lint/simulate examples.
+Optional: iverilog, ghdl on PATH for lint/simulate examples.
 """
 
 import json
 from registry.resolver import CoreRegistry
-from tools.lint import lint_hdl
+from tools.lint import lint_hdl, lint_project
 from tools.simulate import simulate
 
 SEP = "-" * 60
@@ -92,10 +92,28 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# 7. Simulate the UART TX (requires iverilog)
+# 7. Lint multiple files together (requires iverilog)
+# ---------------------------------------------------------------------------
+section("7. lint_project(uart_tx + fifo)")
+uart_core = reg.get_core("uart_tx")
+fifo_core = reg.get_core("fifo")
+project_files = {}
+project_files.update(uart_core["files"])
+project_files.update(fifo_core["files"])
+lint_proj = lint_project(project_files)
+if "error" in lint_proj:
+    print("  Skipped:", lint_proj["error"])
+else:
+    status = "PASS" if lint_proj["success"] else "FAIL"
+    print(f"  [{status}] {lint_proj.get('message', lint_proj.get('stderr', ''))}")
+    print(f"  Files: {lint_proj.get('files', [])}")
+
+
+# ---------------------------------------------------------------------------
+# 8. Simulate the UART TX (requires iverilog)
 #    Simple testbench: send 0xAB and observe serial output
 # ---------------------------------------------------------------------------
-section("7. simulate(uart_tx + testbench)")
+section("8. simulate(uart_tx + testbench, language='verilog')")
 
 uart_hdl = reg.get_core("uart_tx")["files"]["uart_tx.v"]
 
@@ -105,6 +123,7 @@ module tb_uart_tx;
     localparam CLK_PERIOD   = 100; // ns
     localparam CLKS_PER_BIT = 1042;
     localparam BIT_PERIOD   = CLK_PERIOD * CLKS_PER_BIT;
+    localparam HALF_BIT     = BIT_PERIOD / 2;
 
     reg        clk = 0, rst_n = 0, i_tx_dv = 0;
     reg  [7:0] i_tx_byte = 0;
@@ -120,7 +139,7 @@ module tb_uart_tx;
     );
 
     integer i;
-    reg [9:0] frame; // start + 8 data + stop
+    reg [7:0] rx_byte;
 
     initial begin
         // Reset
@@ -133,32 +152,22 @@ module tb_uart_tx;
         #(CLK_PERIOD);
         i_tx_dv   = 0;
 
-        // Capture the frame (start + 8 bits + stop)
-        @(negedge o_tx_serial); // wait for start bit
-        frame[0] = o_tx_serial; // start bit (0)
-        for (i = 1; i <= 8; i = i + 1) begin
+        // Wait for start bit (line goes low)
+        @(negedge o_tx_serial);
+        // Sample at mid-bit: skip to middle of start bit, then capture 8 data bits
+        #(HALF_BIT + BIT_PERIOD); // middle of bit 0 (LSB)
+        for (i = 0; i < 8; i = i + 1) begin
+            rx_byte[i] = o_tx_serial; // UART is LSB first
             #(BIT_PERIOD);
-            frame[i] = o_tx_serial;
         end
-        #(BIT_PERIOD);
-        frame[9] = o_tx_serial; // stop bit (1)
 
         @(posedge o_tx_done);
 
-        $display("TX done. Frame[start=0, data=7:0, stop=1]:");
-        $display("  start=%b  data=%b%b%b%b%b%b%b%b  stop=%b",
-            frame[0],
-            frame[1],frame[2],frame[3],frame[4],
-            frame[5],frame[6],frame[7],frame[8],
-            frame[9]);
-        $display("  Received byte (LSB first): 0x%02X",
-            {frame[8],frame[7],frame[6],frame[5],frame[4],frame[3],frame[2],frame[1]});
-
-        if ({frame[8],frame[7],frame[6],frame[5],frame[4],frame[3],frame[2],frame[1]} == 8'hAB)
-            $display("  PASS: received 0xAB correctly");
+        $display("TX done. Received: 0x%02X (expected 0xAB)", rx_byte);
+        if (rx_byte == 8'hAB)
+            $display("PASS");
         else
-            $display("  FAIL: byte mismatch");
-
+            $display("FAIL: byte mismatch");
         $finish;
     end
 
@@ -179,3 +188,62 @@ elif not sim_result["success"]:
     print(sim_result.get("stderr", ""))
 else:
     print(sim_result["stdout"].strip())
+
+
+# ---------------------------------------------------------------------------
+# 9. VHDL lint (requires ghdl)
+# ---------------------------------------------------------------------------
+section("9. lint_hdl(inverter.vhd, language='vhdl')")
+
+vhdl_design = """library ieee;
+use ieee.std_logic_1164.all;
+entity inverter is
+  port (a : in std_logic; y : out std_logic);
+end entity;
+architecture rtl of inverter is
+begin
+  y <= not a;
+end architecture;
+"""
+
+vhdl_lint = lint_hdl(vhdl_design, language="vhdl")
+if "error" in vhdl_lint:
+    print("  Skipped:", vhdl_lint["error"])
+else:
+    status = "PASS" if vhdl_lint["success"] else "FAIL"
+    print(f"  [{status}] {vhdl_lint.get('message', vhdl_lint.get('stderr', ''))}")
+
+
+# ---------------------------------------------------------------------------
+# 10. VHDL simulation (requires ghdl)
+# ---------------------------------------------------------------------------
+section("10. simulate(inverter + testbench, language='vhdl')")
+
+vhdl_tb = """library ieee;
+use ieee.std_logic_1164.all;
+entity tb_inverter is
+end entity;
+architecture sim of tb_inverter is
+  signal a, y : std_logic;
+begin
+  dut: entity work.inverter port map(a => a, y => y);
+  process begin
+    a <= '0'; wait for 1 ns;
+    assert y = '1' report "FAIL: y should be 1" severity failure;
+    a <= '1'; wait for 1 ns;
+    assert y = '0' report "FAIL: y should be 0" severity failure;
+    report "PASS";
+    wait;
+  end process;
+end architecture;
+"""
+
+vhdl_sim = simulate(vhdl_design, vhdl_tb, language="vhdl", timeout=10)
+if "error" in vhdl_sim:
+    print("  Skipped:", vhdl_sim["error"])
+elif not vhdl_sim["success"]:
+    print("  FAIL (stage:", vhdl_sim.get("stage"), ")")
+    print(vhdl_sim.get("stderr", ""))
+else:
+    output = vhdl_sim.get("stdout", "") + vhdl_sim.get("stderr", "")
+    print(output.strip() if output.strip() else "  Simulation completed successfully")

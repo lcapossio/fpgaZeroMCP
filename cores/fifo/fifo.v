@@ -33,16 +33,16 @@ module fifo #(
     wire do_write = wr_en && !full;
     wire do_read  = rd_en && !empty;
 
-    assign full  = (r_count == ADDR_W+1'($unsigned(DEPTH)));
-    assign empty = (r_count == '0);
+    assign full  = (r_count == DEPTH);
+    assign empty = (r_count == 0);
     assign count = r_count;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            wr_ptr  <= '0;
-            rd_ptr  <= '0;
-            r_count <= '0;
-            rd_data <= '0;
+            wr_ptr  <= {ADDR_W{1'b0}};
+            rd_ptr  <= {ADDR_W{1'b0}};
+            r_count <= {(ADDR_W+1){1'b0}};
+            rd_data <= {DATA_WIDTH{1'b0}};
         end else begin
             if (do_write) begin
                 mem[wr_ptr] <= wr_data;

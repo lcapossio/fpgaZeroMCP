@@ -67,11 +67,20 @@ def synthesize(
         src_yosys      = src.replace("\\", "/")
         out_json_yosys = out_json.replace("\\", "/")
 
-        script = (
-            f"read_verilog {src_yosys}\n"
-            f"{synth_cmd} -top {top_module} -json {out_json_yosys}\n"
-            f"stat\n"
-        )
+        # Generic 'synth' doesn't support -json; use write_json separately
+        if target == "generic":
+            script = (
+                f"read_verilog {src_yosys}\n"
+                f"{synth_cmd} -top {top_module}\n"
+                f"write_json {out_json_yosys}\n"
+                f"stat\n"
+            )
+        else:
+            script = (
+                f"read_verilog {src_yosys}\n"
+                f"{synth_cmd} -top {top_module} -json {out_json_yosys}\n"
+                f"stat\n"
+            )
         with open(ys_script, "w", encoding="utf-8") as f:
             f.write(script)
 

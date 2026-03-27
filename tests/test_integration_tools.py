@@ -133,6 +133,26 @@ def test_place_and_route_ice40() -> None:
 
 
 @pytest.mark.integration
+def test_lint_vhdl_ghdl() -> None:
+    if not _have("ghdl"):
+        pytest.skip("ghdl not installed")
+    vhdl = (
+        "library ieee;\n"
+        "use ieee.std_logic_1164.all;\n"
+        "entity inverter is\n"
+        "  port (a : in std_logic; y : out std_logic);\n"
+        "end entity;\n"
+        "architecture rtl of inverter is\n"
+        "begin\n"
+        "  y <= not a;\n"
+        "end architecture;\n"
+    )
+    result = lint_hdl(vhdl, language="vhdl")
+    assert result.get("success") is True
+    assert result.get("tool") == "ghdl"
+
+
+@pytest.mark.integration
 def test_simulate_vhdl_ghdl() -> None:
     if not _have("ghdl"):
         pytest.skip("ghdl not installed")
