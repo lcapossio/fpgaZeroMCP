@@ -47,8 +47,9 @@ jobs:
 
       - name: Install OSS CAD Suite
         run: |
-          curl -L https://github.com/YosysHQ/oss-cad-suite-build/releases/latest/download/oss-cad-suite-linux-x64.tgz \
-            | tar -xz -C $HOME
+          URL=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest \
+            | python3 -c "import sys,json;[print(a['browser_download_url']) for a in json.load(sys.stdin)['assets'] if 'linux-x64' in a['name']]")
+          curl -fSL "$URL" | tar -xz -C $HOME
           echo "$HOME/oss-cad-suite/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
