@@ -5,10 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "fpgazero-mcp"
 version = "0.2.0"
-description = "fpgaZeroMCP - Tools and IP cores for FPGA design via Model Context Protocol"
+description = "MCP server giving AI assistants a complete FPGA toolchain -- lint, simulate, synthesize, place-and-route, and a live IP core registry"
+readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Leonardo Capossio (bard0)", email = "hello@bard0.com"}]
+keywords = ["fpga", "mcp", "hdl", "verilog", "vhdl", "yosys", "nextpnr", "eda"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
 dependencies = [
     "mcp>=1.0.0",
     "pydantic>=2.0.0",
@@ -17,7 +30,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/lcapossio/fpgaZeroMCP"
+Repository = "https://github.com/lcapossio/fpgaZeroMCP"
+Issues = "https://github.com/lcapossio/fpgaZeroMCP/issues"
 
 [project.scripts]
 fpgazero-mcp = "server:main"
@@ -25,7 +43,21 @@ fpgazero-mcp = "server:main"
 [tool.hatch.build.targets.wheel]
 packages = ["tools", "registry"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "server.py",
+    "example.py",
+    "tools/",
+    "registry/",
+    "cores/uart_tx/",
+    "cores/fifo/",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
 [tool.hatch.build.targets.wheel.force-include]
 "server.py" = "server.py"
 "example.py" = "example.py"
-"cores" = "cores"
+"cores/uart_tx" = "cores/uart_tx"
+"cores/fifo" = "cores/fifo"

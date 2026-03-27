@@ -262,25 +262,45 @@ def import_core(
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     downloaded: list[str] = []
+    failed: list[dict] = []
     for path in hdl_paths:
+        rel_path = Path(path)
+        if subdir_norm:
+            rel_path = rel_path.relative_to(subdir_norm)
         try:
             content = _download_raw(owner, repo, path, ref)
-            rel_path = Path(path)
-            if subdir_norm:
-                rel_path = rel_path.relative_to(subdir_norm)
             target = dest_dir / rel_path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
             downloaded.append(rel_path.as_posix())
         except Exception as e:
-            # Write a stub so the manifest isn't broken
-            rel_path = Path(path)
-            if subdir_norm:
-                rel_path = rel_path.relative_to(subdir_norm)
-            target = dest_dir / rel_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(f"// Download failed: {e}\n", encoding="utf-8")
-            downloaded.append(rel_path.as_posix())
+            failed.append({"file": rel_path.as_posix(), "error": str(e)})
+
+    if failed and not downloaded:
+        # Total failure — clean up and abort
+        import shutil
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        return {
+            "error": f"All file downloads failed for {owner_repo}",
+            "failed_files": failed,
+        }
+
+    if failed:
+        # Partial failure -- don't register as a core (no core.json written)
+        # Files that did download are kept for manual repair
+        return {
+            "imported":      False,
+            "partial":       True,
+            "core_name":     core_name,
+            "source":        f"https://github.com/{owner_repo}",
+            "ref":           ref,
+            "files_fetched": downloaded,
+            "failed_files":  failed,
+            "error": (
+                f"{len(failed)} of {len(hdl_paths)} file(s) failed to download. "
+                f"Core not registered. Downloaded files kept in {dest_dir} for manual repair."
+            ),
+        }
 
     # Build manifest (FuseSoC wins if available)
     description = meta.get("description") or f"Imported from github.com/{owner_repo}"

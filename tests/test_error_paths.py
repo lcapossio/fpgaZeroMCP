@@ -162,6 +162,92 @@ class TestRegistryErrors:
         assert "error" in result
         assert "not found" in result["error"]
 
+    def test_path_traversal_rejected_at_load(self) -> None:
+        tmp = _mk_tmp_dir()
+        core_dir = tmp / "evil"
+        core_dir.mkdir()
+        (core_dir / "core.json").write_text(json.dumps({
+            "name": "evil", "version": "1.0", "description": "x",
+            "author": "x", "license": "MIT", "language": "verilog",
+            "category": "test", "files": ["../../etc/passwd"],
+        }))
+        reg = CoreRegistry(cores_dir=tmp)
+        # Core should be rejected at load time
+        assert "evil" not in [c["name"] for c in reg.list_cores()]
+
+    def test_path_traversal_rejected_at_get(self) -> None:
+        tmp = _mk_tmp_dir()
+        core_dir = tmp / "tricky"
+        core_dir.mkdir()
+        (core_dir / "core.json").write_text(json.dumps({
+            "name": "tricky", "version": "1.0", "description": "x",
+            "author": "x", "license": "MIT", "language": "verilog",
+            "category": "test", "files": ["sub/../../../etc/hosts"],
+        }))
+        reg = CoreRegistry(cores_dir=tmp)
+        # Should be rejected at load time already
+        assert "tricky" not in [c["name"] for c in reg.list_cores()]
+
+    def test_absolute_path_rejected(self) -> None:
+        tmp = _mk_tmp_dir()
+        core_dir = tmp / "abs"
+        core_dir.mkdir()
+        (core_dir / "core.json").write_text(json.dumps({
+            "name": "abs", "version": "1.0", "description": "x",
+            "author": "x", "license": "MIT", "language": "verilog",
+            "category": "test", "files": ["/etc/passwd"],
+        }))
+        reg = CoreRegistry(cores_dir=tmp)
+        assert "abs" not in [c["name"] for c in reg.list_cores()]
+
+
+# ---------------------------------------------------------------------------
+# generate_ip validation
+# ---------------------------------------------------------------------------
+
+class TestGenerateIpValidation:
+    def test_unknown_parameter_rejected(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"NONEXISTENT": 42})
+        assert "error" in result
+        assert "Unknown" in result["error"]
+
+    def test_parameter_below_minimum(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": 1})
+        assert "error" in result
+        assert "minimum" in result["error"]
+
+    def test_parameter_above_maximum(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": 99})
+        assert "error" in result
+        assert "maximum" in result["error"]
+
+    def test_parameter_wrong_type(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": "eight"})
+        assert "error" in result
+        assert "integer" in result["error"]
+
+    def test_float_rejected_for_integer(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": 3.9})
+        assert "error" in result
+        assert "integer" in result["error"]
+
+    def test_bool_rejected_for_integer(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": True})
+        assert "error" in result
+        assert "integer" in result["error"]
+
+    def test_valid_parameters_accepted(self) -> None:
+        reg = CoreRegistry()
+        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": 7, "CLKS_PER_BIT": 500})
+        assert "error" not in result
+        assert result["parameters_used"]["DATA_WIDTH"] == 7
+
 
 # ---------------------------------------------------------------------------
 # FuseSoC parser edge cases

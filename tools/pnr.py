@@ -98,17 +98,20 @@ def place_and_route(
             f.write(script)
 
         # ------------------------------------------------------------------
-        # Stage 1: Synthesis
+        # Stage 1: Synthesis (capped to 1/3 of total, never exceeds deadline)
         # ------------------------------------------------------------------
+        import time as _time
+        deadline = _time.monotonic() + timeout
+        synth_timeout = min(max(timeout // 3, 30), timeout)
         try:
             synth = subprocess.run(
                 ["yosys", "-s", ys_script],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True, timeout=synth_timeout,
             )
         except FileNotFoundError:
             return {"success": False, "error": "'yosys' not found. Install OSS CAD Suite."}
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": "Synthesis timed out after 120 s."}
+            return {"success": False, "error": f"Synthesis timed out after {synth_timeout} s."}
 
         if synth.returncode != 0:
             return {
@@ -135,14 +138,15 @@ def place_and_route(
             netlist_json, out_file, cst_file if constraints else None,
         )
 
+        pnr_timeout = max(int(deadline - _time.monotonic()), 1)
         try:
             pnr = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout,
+                cmd, capture_output=True, text=True, timeout=pnr_timeout,
             )
         except FileNotFoundError:
             return {"success": False, "error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite."}
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Place and route timed out after {timeout} s."}
+            return {"success": False, "error": f"Place and route timed out after {pnr_timeout} s."}
 
         combined_output = pnr.stdout + pnr.stderr
 

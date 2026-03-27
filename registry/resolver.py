@@ -63,6 +63,11 @@ class CoreRegistry:
                 manifest = CoreManifest.model_validate(
                     json.loads(manifest_path.read_text(encoding="utf-8"))
                 )
+                # Reject manifests with unsafe file paths
+                for fname in manifest.files:
+                    rel = Path(fname)
+                    if rel.is_absolute() or ".." in rel.parts or fname.startswith("/"):
+                        raise ValueError(f"Unsafe file path: {fname}")
                 # Later paths override earlier ones for the same name
                 self._cache[manifest.name] = (manifest, core_dir)
             except Exception as exc:
@@ -108,7 +113,12 @@ class CoreRegistry:
         manifest, core_dir = self._cache[name]
         files: dict[str, str] = {}
         for filename in manifest.files:
-            path = core_dir / filename
+            rel = Path(filename)
+            if rel.is_absolute() or ".." in rel.parts or filename.startswith("/"):
+                return {"error": f"Unsafe file path in core '{name}': {filename}"}
+            path = (core_dir / rel).resolve()
+            if not path.is_relative_to(core_dir.resolve()):
+                return {"error": f"Path traversal in core '{name}': {filename}"}
             if path.exists():
                 files[filename] = path.read_text(encoding="utf-8")
             else:
@@ -196,10 +206,48 @@ class CoreRegistry:
             return core
 
         manifest_data = core["manifest"]
-        params = {**{k: v["default"] for k, v in manifest_data["parameters"].items()}, **(parameters or {})}
-        inst   = instance_name or f"{name}_inst"
+        declared = manifest_data["parameters"]
+        overrides = parameters or {}
 
-        param_lines = [f"        .{k}({v})" for k, v in params.items()]
+        # Validate: reject unknown parameter names
+        unknown = set(overrides) - set(declared)
+        if unknown:
+            return {"error": f"Unknown parameter(s): {', '.join(sorted(unknown))}. "
+                    f"Available: {', '.join(sorted(declared))}"}
+
+        # Merge defaults with overrides, validate types and ranges
+        params: dict[str, int | str | bool] = {}
+        for k, spec in declared.items():
+            val = overrides.get(k, spec["default"])
+            ptype = spec["type"]
+
+            if ptype == "integer":
+                if isinstance(val, bool) or not isinstance(val, int):
+                    return {"error": f"Parameter '{k}' must be an integer, got {type(val).__name__}"}
+                if spec.get("minimum") is not None and val < spec["minimum"]:
+                    return {"error": f"Parameter '{k}' = {val} is below minimum {spec['minimum']}"}
+                if spec.get("maximum") is not None and val > spec["maximum"]:
+                    return {"error": f"Parameter '{k}' = {val} exceeds maximum {spec['maximum']}"}
+            elif ptype == "boolean":
+                if not isinstance(val, (bool, int)):
+                    return {"error": f"Parameter '{k}' must be a boolean, got {type(val).__name__}"}
+                val = bool(val)
+            elif ptype == "string":
+                val = str(val)
+
+            params[k] = val
+
+        inst = instance_name or f"{name}_inst"
+
+        # Format values for Verilog
+        def _verilog_val(v: int | str | bool) -> str:
+            if isinstance(v, bool):
+                return "1" if v else "0"
+            if isinstance(v, int):
+                return str(v)
+            return f'"{v}"'
+
+        param_lines = [f"        .{k}({_verilog_val(v)})" for k, v in params.items()]
         param_block = ""
         if param_lines:
             param_block = " #(\n" + ",\n".join(param_lines) + "\n    )"

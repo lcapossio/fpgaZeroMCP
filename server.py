@@ -64,7 +64,7 @@ async def handle_list_tools() -> list[types.Tool]:
             name="lint_project",
             description=(
                 "Lint multiple HDL files together so cross-module references resolve. "
-                "Pass a dict of filename→source pairs. All files are compiled in one invocation "
+                "Pass a dict of filename-to-source pairs. All files are compiled in one invocation "
                 "of iverilog (Verilog/SystemVerilog) or ghdl (VHDL)."
             ),
             inputSchema={
@@ -232,7 +232,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="search_github_cores",
             description=(
-                "Search GitHub for open-source MIT-licensed FPGA IP cores. "
+                "Search GitHub for open-source FPGA IP cores (MIT, BSD, Apache, GPL, etc). "
                 "Returns repo names, star counts, descriptions and topics. "
                 "Use import_github_core to download a result into the local registry."
             ),
@@ -260,7 +260,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="import_github_core",
             description=(
-                "Download an MIT-licensed GitHub repository and add it to the local IP core registry. "
+                "Download an open-source GitHub repository and add it to the local IP core registry. "
                 "Automatically uses FuseSoC CAPI2 metadata (.core file) if one exists in the repo. "
                 "After import, the core is immediately available via get_ip_core and generate_ip."
             ),
@@ -488,6 +488,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "default": 30,
                         "description": "Number of log lines to return from the end",
                     },
+                    "parse": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Parse log for build phase/utilization/timing (set false for fast polling)",
+                    },
                 },
                 "required": ["build_id"],
             },
@@ -646,6 +651,7 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                 result = builds.status(
                     build_id=arguments["build_id"],
                     tail_lines=arguments.get("tail_lines", 30),
+                    parse=arguments.get("parse", True),
                 )
             case "list_builds":
                 result = builds.list_builds()

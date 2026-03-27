@@ -167,13 +167,16 @@ class BuildManager:
             "message": f"Build started. Check with build_status(build_id='{build_id}').",
         }
 
-    def status(self, build_id: str, tail_lines: int = 30) -> dict:
-        """Return current status and recent log output for a build."""
+    def status(self, build_id: str, tail_lines: int = 30, parse: bool = True) -> dict:
+        """Return current status and recent log output for a build.
+
+        Set parse=False to skip full-log parsing (faster for frequent polling).
+        """
         with self._lock:
             record = self._builds.get(build_id)
         if not record:
             return {"error": f"Unknown build_id: '{build_id}'"}
-        return record.to_dict(tail_lines)
+        return record.to_dict(tail_lines, parse=parse)
 
     def list_builds(self) -> list[dict]:
         """Return summary of all tracked builds (no full log parsing for speed)."""
