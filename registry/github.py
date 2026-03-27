@@ -36,9 +36,13 @@ _HEADERS = _build_headers()
 # Allowed licenses
 # Override by setting FPGAZERO_ALLOWED_LICENSES to a comma-separated list of
 # SPDX identifiers, e.g.:  FPGAZERO_ALLOWED_LICENSES=MIT,Apache-2.0
-# Default: MIT, GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0
+# Default: MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC,
+#          GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0
 # ---------------------------------------------------------------------------
-_DEFAULT_LICENSES = {"MIT", "GPL-2.0", "GPL-3.0", "LGPL-2.1", "LGPL-3.0"}
+_DEFAULT_LICENSES = {
+    "MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC",
+    "GPL-2.0", "GPL-3.0", "LGPL-2.1", "LGPL-3.0",
+}
 
 def _allowed_licenses() -> set[str]:
     raw = os.environ.get("FPGAZERO_ALLOWED_LICENSES", "")

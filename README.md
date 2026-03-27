@@ -296,7 +296,7 @@ All paths are scanned on startup alongside the built-in `cores/` directory.
 By default, `import_github_core` accepts repos with any of these SPDX licenses:
 
 ```
-MIT, GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0
+MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0
 ```
 
 Override with the `FPGAZERO_ALLOWED_LICENSES` environment variable (comma-separated SPDX IDs):
@@ -334,7 +334,7 @@ Some tests require OSS CAD Suite tools on PATH. Tests that need missing tools ar
 |---|---|
 | `GITHUB_TOKEN` | GitHub personal access token — raises API rate limits |
 | `USERCORES_PATH` | Extra core search directories (OS path separator delimited) |
-| `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
+| `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
 | `FPGAZERO_TMPDIR` | Override temporary workspace root directory |
 
 ---

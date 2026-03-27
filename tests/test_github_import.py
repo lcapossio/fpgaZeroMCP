@@ -22,7 +22,7 @@ def test_import_core_rejects_non_mit(monkeypatch) -> None:
     def fake_get(url: str, params: dict | None = None):
         assert url.endswith("/repos/owner/repo")
         return {
-            "license": {"spdx_id": "Apache-2.0"},
+            "license": {"spdx_id": "SSPL-1.0"},
             "default_branch": "main",
             "description": "x",
             "topics": [],
