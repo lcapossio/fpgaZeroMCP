@@ -1,6 +1,14 @@
-# lint — HDL Linting
+# lint -- HDL Linting
 
 Syntax and error checking for Verilog, SystemVerilog, and VHDL source code.
+
+## Index
+
+- [Tools](#tools)
+- [Backends](#backends)
+- [lint_hdl](#lint_hdl)
+- [lint_project](#lint_project)
+- [Usage](#usage)
 
 ## Tools
 
@@ -51,18 +59,6 @@ Lint multiple files in a single invocation so cross-module references resolve.
 | `top_module` | string | `null` | Top-level module name (passed as `-s` to iverilog) |
 | `timeout` | integer | `60` | Timeout in seconds |
 
-### Example
-
-```json
-{
-  "files": {
-    "sub.v": "module sub(input wire a, output wire y); assign y = ~a; endmodule",
-    "top.v": "module top(input wire a, output wire y); sub u0(.a(a), .y(y)); endmodule"
-  },
-  "top_module": "top"
-}
-```
-
 ### Response
 
 ```json
@@ -75,4 +71,33 @@ Lint multiple files in a single invocation so cross-module references resolve.
   "stderr": "",
   "message": "No errors found."
 }
+```
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Lint this Verilog module for errors."
+
+> "Lint these three files together -- top.v instantiates sub.v and utils.v."
+
+### Python
+
+```python
+from tools.lint import lint_hdl, lint_project
+
+# Single file
+result = lint_hdl("module top(input a, output y); assign y = a; endmodule\n")
+print(result["success"])  # True
+
+# Multiple files
+result = lint_project({
+    "sub.v": "module sub(input wire a, output wire y); assign y = ~a; endmodule",
+    "top.v": "module top(input wire a, output wire y); sub u0(.a(a), .y(y)); endmodule",
+}, top_module="top")
+print(result["success"])  # True
+print(result["files"])    # ["sub.v", "top.v"]
+
+# VHDL
+result = lint_hdl(open("inverter.vhd").read(), language="vhdl")
 ```

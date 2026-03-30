@@ -1,8 +1,21 @@
-# workspace — Temporary Workspace Management
+# workspace -- Temporary Workspace Management
 
 Context manager that creates a temporary directory for EDA tool operations.
 
+## Index
+
+- [Usage](#usage)
+- [Directory Selection](#directory-selection)
+- [Environment Variable](#environment-variable)
+- [Cleanup](#cleanup)
+
 ## Usage
+
+### MCP (via AI assistant)
+
+The workspace is used internally by all tool wrappers (lint, synthesize, simulate, pnr). You don't call it directly via MCP.
+
+### Python
 
 ```python
 from tools.workspace import temporary_workspace
@@ -10,6 +23,9 @@ from tools.workspace import temporary_workspace
 with temporary_workspace("synth_") as tmpdir:
     # tmpdir is a writable directory path string
     # Write source files, run tools, read results
+    with open(f"{tmpdir}/design.v", "w") as f:
+        f.write("module top(...); ... endmodule")
+    # Run EDA tools in tmpdir
     pass
 # Directory is cleaned up automatically on exit
 ```

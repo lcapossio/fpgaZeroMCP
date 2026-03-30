@@ -1,6 +1,17 @@
-# pnr — Place and Route
+# pnr -- Place and Route
 
 Full synthesis + place-and-route pipeline: Yosys synthesis to JSON netlist, then nextpnr.
+
+## Index
+
+- [MCP Tool](#mcp-tool)
+- [Supported Targets](#supported-targets)
+- [Common Device / Package Values](#common-device--package-values)
+- [Parameters](#parameters)
+- [Response](#response)
+- [Pipeline](#pipeline)
+- [Timeout Budget](#timeout-budget)
+- [Usage](#usage)
 
 ## MCP Tool
 
@@ -34,7 +45,7 @@ Full synthesis + place-and-route pipeline: Yosys synthesis to JSON netlist, then
 | `device` | string | *(required)* | Device variant |
 | `package` | string | `""` | Package (not needed for nexus/gowin) |
 | `constraints` | string | `""` | Pin constraints text (PCF/LPF/PDC/CST) |
-| `timeout` | integer | `300` | PnR timeout in seconds (clamped to 1-3600) |
+| `timeout` | integer | `300` | Total timeout in seconds (clamped to 1-3600) |
 | `backend` | string | `"yosys"` | `yosys` or `litex` |
 | `litex_board` | string | `null` | LiteX board (required if backend=litex) |
 | `litex_args` | array | `null` | Extra LiteX CLI args |
@@ -67,6 +78,36 @@ Full synthesis + place-and-route pipeline: Yosys synthesis to JSON netlist, then
 
 ## Pipeline
 
-1. **Synthesis** — Yosys reads Verilog, runs `synth_<target>`, writes JSON netlist
-2. **Place and route** — nextpnr reads the netlist, places and routes with optional constraints
-3. **Output parsing** — Timing (Fmax, critical path) and utilization extracted from nextpnr output
+1. **Synthesis** -- Yosys reads Verilog, runs `synth_<target>`, writes JSON netlist
+2. **Place and route** -- nextpnr reads the netlist, places and routes with optional constraints
+3. **Output parsing** -- Timing (Fmax, critical path) and utilization extracted from nextpnr output
+
+## Timeout Budget
+
+The `timeout` parameter is the total budget for both stages. Synthesis gets up to 1/3 of the total (minimum 60s, capped at the total). Place-and-route gets the remaining time.
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Run place-and-route on this module targeting an iCE40 HX1K in a TQ144 package."
+
+> "P&R this ECP5 design with these pin constraints."
+
+### Python
+
+```python
+from tools.pnr import place_and_route
+
+result = place_and_route(
+    code=open("blinky.v").read(),
+    top_module="blinky",
+    target="ice40",
+    device="hx1k",
+    package="tq144",
+    constraints="set_io led 99\nset_io clk 21\n",
+    timeout=120,
+)
+print(result["timing"])       # {"max_freq_mhz": 142.34, ...}
+print(result["utilization"])  # {"luts_used": 42, "luts_total": 1280, ...}
+```

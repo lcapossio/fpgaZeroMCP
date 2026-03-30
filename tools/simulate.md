@@ -1,6 +1,16 @@
-# simulate — HDL Simulation
+# simulate -- HDL Simulation
 
 Compile and run HDL simulations with design + testbench.
+
+## Index
+
+- [MCP Tool](#mcp-tool)
+- [Backends](#backends)
+- [Parameters](#parameters)
+- [Response](#response)
+- [VHDL Notes](#vhdl-notes)
+- [Stages](#stages)
+- [Usage](#usage)
 
 ## MCP Tool
 
@@ -36,7 +46,7 @@ Compile and run HDL simulations with design + testbench.
 
 ## VHDL Notes
 
-- The testbench must contain an `entity <name> is` declaration — the entity name is auto-extracted and used for elaboration and run.
+- The testbench must contain an `entity <name> is` declaration -- the entity name is auto-extracted and used for elaboration and run.
 - GHDL is invoked with `--std=08` (VHDL-2008).
 - All GHDL stages use a shared `--workdir` so compiled units are visible across files.
 
@@ -51,3 +61,30 @@ The `stage` field in the response indicates where execution stopped:
 | `analyze_design` | GHDL failed analyzing the design file |
 | `analyze_testbench` | GHDL failed analyzing the testbench |
 | `elaborate` | GHDL elaboration failed |
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Simulate this FIFO with a testbench that writes 4 bytes then reads them back."
+
+> "Run the inverter VHDL testbench."
+
+### Python
+
+```python
+from tools.simulate import simulate
+
+# Verilog simulation
+design = open("counter.v").read()
+tb = open("tb_counter.v").read()
+result = simulate(design, tb, timeout=30)
+print(result["success"])
+print(result["stdout"])
+
+# VHDL simulation
+design = open("inverter.vhd").read()
+tb = open("tb_inverter.vhd").read()
+result = simulate(design, tb, language="vhdl", timeout=10)
+print(result["stdout"] + result["stderr"])
+```

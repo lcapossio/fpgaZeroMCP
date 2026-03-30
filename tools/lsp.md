@@ -1,6 +1,14 @@
-# lsp — Diagnostics and Formatting
+# lsp -- Diagnostics and Formatting
 
 LSP-like structured diagnostics and auto-formatting for HDL source code.
+
+## Index
+
+- [MCP Tools](#mcp-tools)
+- [Backends](#backends)
+- [get_diagnostics](#get_diagnostics)
+- [format_hdl](#format_hdl)
+- [Usage](#usage)
 
 ## MCP Tools
 
@@ -68,4 +76,28 @@ LSP-like structured diagnostics and auto-formatting for HDL source code.
   "formatted": "module top(\n    input wire a,\n    output wire y\n);\n  assign y = a;\nendmodule\n",
   "changed": true
 }
+```
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Get diagnostics for this Verilog module."
+
+> "Format this SystemVerilog file."
+
+### Python
+
+```python
+from tools.lsp import get_diagnostics, format_hdl
+
+# Diagnostics
+result = get_diagnostics("module top; wire x = 1'b1; endmodule\n")
+for diag in result["diagnostics"]:
+    print(f"  line {diag['line']}: [{diag['severity']}] {diag['message']}")
+
+# Formatting
+result = format_hdl("module top(input wire a,output wire y);assign y=a;endmodule\n")
+if result["changed"]:
+    print(result["formatted"])
 ```

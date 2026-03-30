@@ -1,6 +1,19 @@
-# build_parser — Build Log Parser
+# build_parser -- Build Log Parser
 
 Single-pass parser for EDA tool build logs. Auto-detects the tool and extracts structured build information.
+
+## Index
+
+- [Supported Tools](#supported-tools)
+- [Extracted Information](#extracted-information)
+  - [Phases](#phases)
+  - [Resource Utilization](#resource-utilization)
+  - [Timing](#timing)
+  - [Congestion](#congestion)
+  - [Progress Estimation](#progress-estimation)
+  - [Warning / Error Counts](#warning--error-counts)
+- [Health Assessment](#health-assessment)
+- [Usage](#usage)
 
 ## Supported Tools
 
@@ -84,12 +97,29 @@ Tool-specific patterns avoid false positives:
 
 ## Usage
 
+### MCP (via AI assistant)
+
+The parser is used internally by `build_status` -- you don't call it directly via MCP. When you check a build's status, the `build_info` field contains the parsed results.
+
+### Python
+
 ```python
 from tools.build_parser import parse_build_log
 
-result = parse_build_log(log_text)
+# Parse a log file
+with open("build.log") as f:
+    result = parse_build_log(f.read())
+
 print(result["tool"])          # "nextpnr"
 print(result["phase"])         # "nextpnr_routing"
+print(result["phase_label"])   # "Nextpnr: Routing nets"
 print(result["health"])        # {"status": "warning", "concerns": [...]}
 print(result["utilization"])   # {"luts": {"used": 4200, "total": 5280, "pct": 79.5}}
+print(result["timing"])        # {"fmax_mhz": 142.34, "met": true}
+print(result["warnings"])      # 5
+print(result["errors"])        # 0
+
+# Check phase history with line counts
+for phase in result["phase_detail"]:
+    print(f"  {phase['phase']}: {phase['lines']} lines")
 ```

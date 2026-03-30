@@ -1,6 +1,17 @@
-# litex — LiteX SoC Framework
+# litex -- LiteX SoC Framework
 
 Wrappers for LiteX board targets. Runs LiteX as `python -m litex_boards.targets.<board>`.
+
+## Index
+
+- [MCP Tools](#mcp-tools)
+- [Board Name Validation](#board-name-validation)
+- [litex_build](#litex_build)
+- [litex_soc](#litex_soc)
+- [litex_flow](#litex_flow)
+- [Response](#response-all-tools)
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
 
 ## MCP Tools
 
@@ -64,3 +75,27 @@ Strips `--build` if present, adds `--no-compile`.
 ## Prerequisites
 
 Requires [LiteX](https://github.com/enjoy-digital/litex) and [litex-boards](https://github.com/litex-hub/litex-boards) installed.
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Build a LiteX SoC for the Digilent Arty board."
+
+> "Generate the SoC for lattice_ecp5_evn without building gateware."
+
+### Python
+
+```python
+from tools.litex import litex_build, litex_soc, litex_flow
+
+# Build for Arty
+result = litex_build("digilent_arty", args=["--cpu-type=vexriscv"])
+print(result["output_dir"])
+
+# Generate SoC only (no gateware build)
+result = litex_soc("digilent_arty")
+
+# Custom flow
+result = litex_flow("digilent_arty", args=["--build", "--with-ethernet"])
+```

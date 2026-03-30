@@ -1,6 +1,16 @@
-# synthesize — Yosys Synthesis
+# synthesize -- Yosys Synthesis
 
 Synthesize Verilog designs using Yosys. Returns resource statistics and inferred module names.
+
+## Index
+
+- [MCP Tool](#mcp-tool)
+- [Backends](#backends)
+- [Supported Targets](#supported-targets)
+- [Parameters](#parameters)
+- [Response](#response)
+- [Top Module Validation](#top-module-validation)
+- [Usage](#usage)
 
 ## MCP Tool
 
@@ -56,3 +66,34 @@ The `top_module` name must be a valid Verilog identifier:
 - Starts with a letter, underscore, or `$`
 - Contains only letters, digits, underscores, or `$`
 - Cannot be empty or contain spaces
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Synthesize this design for iCE40 and tell me the LUT count."
+
+> "Run generic synthesis on my counter module."
+
+### Python
+
+```python
+from tools.synthesize import synthesize
+
+# Generic synthesis
+result = synthesize(
+    code=open("counter.v").read(),
+    top_module="counter",
+    target="generic",
+)
+print(result["success"])  # True
+print(result["modules"])  # ["counter"]
+
+# Target-specific
+result = synthesize(
+    code=open("blinky.v").read(),
+    top_module="blinky",
+    target="ice40",
+    timeout=180,
+)
+```

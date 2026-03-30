@@ -1,13 +1,23 @@
-# build_manager — Background Build Management
+# build_manager -- Background Build Management
 
 Start, monitor, and cancel long-running EDA builds in the background.
+
+## Index
+
+- [MCP Tools](#mcp-tools)
+- [start_build](#start_build)
+- [build_status](#build_status)
+- [list_builds](#list_builds)
+- [cancel_build](#cancel_build)
+- [Internals](#internals)
+- [Usage](#usage)
 
 ## MCP Tools
 
 | Tool | Description |
 |---|---|
 | `start_build` | Start a command in the background, returns a `build_id` |
-| `build_status` | Check progress — status, elapsed time, parsed build info, recent log |
+| `build_status` | Check progress: status, elapsed time, parsed build info, recent log |
 | `list_builds` | List all tracked builds with status summary |
 | `cancel_build` | Kill a running build |
 
@@ -37,6 +47,7 @@ Start, monitor, and cancel long-running EDA builds in the background.
 |---|---|---|---|
 | `build_id` | string | *(required)* | Build ID from `start_build` |
 | `tail_lines` | integer | `30` | Number of log lines from the end |
+| `parse` | boolean | `true` | Parse log for phase/utilization/timing (set false for fast polling) |
 
 ### Response
 
@@ -83,3 +94,41 @@ Sends SIGTERM, waits 5s, then SIGKILL if needed.
 - A daemon thread monitors each subprocess and records the exit code
 - Large log tail reads use seek-from-end for efficiency
 - Thread-safe via `threading.Lock`
+
+## Usage
+
+### MCP (via AI assistant)
+
+> "Start a Yosys synthesis build in the background and check on it every 2 minutes."
+
+> "Cancel build a3f2c1b0."
+
+> "What builds are running?"
+
+### Python
+
+```python
+from tools.build_manager import BuildManager
+
+mgr = BuildManager()
+
+# Start a build
+result = mgr.start(cmd=["yosys", "-s", "synth.ys"], label="ECP5 synth")
+build_id = result["build_id"]
+
+# Check status (with full log parsing)
+status = mgr.status(build_id)
+print(status["build_info"]["phase_label"])
+print(status["build_info"]["health"])
+
+# Fast polling (no log parsing)
+status = mgr.status(build_id, parse=False)
+print(status["status"], status["elapsed_s"])
+
+# List all builds
+for b in mgr.list_builds():
+    print(f"{b['build_id']} [{b['status']}] {b['label']}")
+
+# Cancel
+mgr.cancel(build_id)
+```
