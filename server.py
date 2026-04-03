@@ -42,8 +42,8 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="lint_hdl",
             description=(
-                "Lint HDL source code using iverilog (Verilog/SystemVerilog) or ghdl (VHDL). "
-                "Returns warnings and errors so you can fix them before synthesis."
+                "Lint HDL source code using iverilog/verilator (Verilog/SystemVerilog) or ghdl (VHDL). "
+                "Use linter='verilator' to enable -Wall checks including multidriven net detection."
             ),
             inputSchema={
                 "type": "object",
@@ -56,6 +56,12 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": "HDL language variant",
                     },
                     "top_module": {"type": "string", "description": "Top-level module name (optional)"},
+                    "linter": {
+                        "type": "string",
+                        "enum": ["iverilog", "verilator"],
+                        "default": "iverilog",
+                        "description": "Linter backend for Verilog/SV. 'verilator' enables -Wall (multidriven nets, etc.)",
+                    },
                 },
                 "required": ["code"],
             },
@@ -65,7 +71,8 @@ async def handle_list_tools() -> list[types.Tool]:
             description=(
                 "Lint multiple HDL files together so cross-module references resolve. "
                 "Pass a dict of filename-to-source pairs. All files are compiled in one invocation "
-                "of iverilog (Verilog/SystemVerilog) or ghdl (VHDL)."
+                "of iverilog/verilator (Verilog/SystemVerilog) or ghdl (VHDL). "
+                "Use linter='verilator' to enable -Wall checks including multidriven net detection."
             ),
             inputSchema={
                 "type": "object",
@@ -89,6 +96,12 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "integer",
                         "default": 60,
                         "description": "Timeout in seconds",
+                    },
+                    "linter": {
+                        "type": "string",
+                        "enum": ["iverilog", "verilator"],
+                        "default": "iverilog",
+                        "description": "Linter backend for Verilog/SV. 'verilator' enables -Wall (multidriven nets, etc.)",
                     },
                 },
                 "required": ["files"],

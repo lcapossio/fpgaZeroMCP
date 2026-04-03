@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,6 +34,22 @@ def _have(*bins: str) -> bool:
     return all(shutil.which(b) for b in bins)
 
 
+def _have_verilator() -> bool:
+    """True if verilator is on PATH or available via WSL on Windows."""
+    if shutil.which("verilator"):
+        return True
+    if sys.platform == "win32":
+        try:
+            r = subprocess.run(
+                ["wsl", "which", "verilator"],
+                capture_output=True, timeout=10,
+            )
+            return r.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    return False
+
+
 VERILOG_OK = "module top(input wire a, output wire y); assign y = a; endmodule\n"
 
 
@@ -41,6 +59,33 @@ def test_lint_verilog_iverilog() -> None:
         pytest.skip("iverilog not installed")
     result = lint_hdl(VERILOG_OK, language="verilog")
     assert result.get("success") is True
+
+
+@pytest.mark.integration
+def test_lint_verilog_verilator_clean() -> None:
+    if not _have_verilator():
+        pytest.skip("verilator not installed")
+    result = lint_hdl(VERILOG_OK, language="verilog", linter="verilator")
+    assert result.get("success") is True
+    assert result.get("tool") == "verilator"
+
+
+@pytest.mark.integration
+def test_lint_verilog_verilator_multidriven() -> None:
+    """Verilator should flag a signal driven from both combo and sequential logic (BLKANDNBLK)."""
+    if not _have_verilator():
+        pytest.skip("verilator not installed")
+    # y driven by blocking assignment (combo) AND non-blocking (sequential) — classic multidriven bug
+    multidriven = (
+        "module top(input wire clk, input wire a, output reg y);\n"
+        "  always @(*) y = a;\n"
+        "  always @(posedge clk) y <= ~a;\n"
+        "endmodule\n"
+    )
+    result = lint_hdl(multidriven, language="verilog", linter="verilator")
+    assert result.get("success") is False
+    combined = result.get("stdout", "") + result.get("stderr", "")
+    assert "BLKANDNBLK" in combined or "MULTIDRIVEN" in combined
 
 
 @pytest.mark.integration
