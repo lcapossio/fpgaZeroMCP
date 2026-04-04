@@ -171,12 +171,14 @@ _UTIL_NEXTPNR = [
 ]
 
 _UTIL_VIVADO = [
-    (re.compile(r"(?:Slice |CLB )LUTs?\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)"), "luts", 2),
-    (re.compile(r"(?:Slice |CLB )Registers?\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)"), "ffs", 2),
-    (re.compile(r"Block RAM Tile\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)"), "brams", 2),
-    (re.compile(r"DSPs?\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)"), "dsps", 2),
-    (re.compile(r"Bonded IOB\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)"), "ios", 2),
-    (re.compile(r"URAM\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)"), "urams", 2),
+    # Real Vivado format: | Resource | Used | Fixed | Available | Util% |
+    # Skip the "Fixed" column with a non-capturing group before capturing "Available".
+    (re.compile(r"(?:Slice |CLB )LUTs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "luts", 2),
+    (re.compile(r"(?:Slice |CLB )Registers?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "ffs", 2),
+    (re.compile(r"Block RAM Tile\s*\|\s*([\d.]+)\s*\|\s*[\d.]+\s*\|\s*([\d.]+)"), "brams", 2),
+    (re.compile(r"DSPs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "dsps", 2),
+    (re.compile(r"Bonded IOB\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "ios", 2),
+    (re.compile(r"URAM\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "urams", 2),
 ]
 
 _UTIL_QUARTUS = [

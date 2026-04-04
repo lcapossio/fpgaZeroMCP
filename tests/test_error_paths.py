@@ -651,21 +651,27 @@ class TestBuildParser:
         assert any("timing" in p for p in result["phase_history"])
 
     def test_vivado_utilization_table(self) -> None:
+        # Real Vivado format: | Resource | Used | Fixed | Available | Util% |
         log = (
             "Vivado v2024.1\n"
-            "| Slice LUTs  |  1234 |  53200 |\n"
-            "| Slice Registers |  890 |  106400 |\n"
-            "| Block RAM Tile |  4.5 |  140 |\n"
-            "| DSPs  |  3 |  220 |\n"
-            "| Bonded IOB  |  12 |  200 |\n"
+            "| Slice LUTs      |  1234 |     0 |    53200 |  2.32 |\n"
+            "| Slice Registers |   890 |     0 |   106400 |  0.84 |\n"
+            "| Block RAM Tile  |   4.5 |     0 |      140 |  3.21 |\n"
+            "| DSPs            |     3 |     0 |      220 |  1.36 |\n"
+            "| Bonded IOB      |    12 |     0 |      200 |  6.00 |\n"
         )
         result = parse_build_log(log)
         assert result["utilization"]["luts"]["used"] == 1234
         assert result["utilization"]["luts"]["total"] == 53200
+        assert result["utilization"]["luts"]["pct"] == round(1234 / 53200 * 100, 1)
         assert result["utilization"]["ffs"]["used"] == 890
+        assert result["utilization"]["ffs"]["total"] == 106400
         assert result["utilization"]["brams"]["used"] == 4.5
+        assert result["utilization"]["brams"]["total"] == 140.0
         assert result["utilization"]["dsps"]["used"] == 3
+        assert result["utilization"]["dsps"]["total"] == 220
         assert result["utilization"]["ios"]["used"] == 12
+        assert result["utilization"]["ios"]["total"] == 200
 
     def test_quartus_phases(self) -> None:
         log = (
