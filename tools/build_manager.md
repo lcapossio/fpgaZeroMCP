@@ -6,9 +6,12 @@ Start, monitor, and cancel long-running EDA builds in the background.
 
 - [MCP Tools](#mcp-tools)
 - [start_build](#start_build)
+- [Command Allowlist](#command-allowlist)
 - [build_status](#build_status)
 - [list_builds](#list_builds)
 - [cancel_build](#cancel_build)
+- [cleanup_build_logs](#cleanup_build_logs)
+- [File Locations](#file-locations)
 - [Internals](#internals)
 - [Usage](#usage)
 
@@ -20,6 +23,7 @@ Start, monitor, and cancel long-running EDA builds in the background.
 | `build_status` | Check progress: status, elapsed time, parsed build info, recent log |
 | `list_builds` | List all tracked builds with status summary |
 | `cancel_build` | Kill a running build |
+| `cleanup_build_logs` | Delete old build logs to reclaim disk space |
 
 ## start_build
 
@@ -27,7 +31,7 @@ Start, monitor, and cancel long-running EDA builds in the background.
 |---|---|---|---|
 | `cmd` | array | *(required)* | Command and arguments, e.g. `["yosys", "-s", "synth.ys"]` |
 | `label` | string | `""` | Human-readable label |
-| `work_dir` | string | `null` | Working directory (default: project root) |
+| `work_dir` | string | `null` | Working directory (default: server's cwd) |
 
 ### Response
 
@@ -40,6 +44,19 @@ Start, monitor, and cancel long-running EDA builds in the background.
   "message": "Build started. Check with build_status(build_id='a3f2c1b0')."
 }
 ```
+
+## Command Allowlist
+
+`start_build` only permits EDA-related commands. Arbitrary executables are rejected.
+
+**Allowed tools:**
+- Synthesis/PnR: `yosys`, `nextpnr-ice40`, `nextpnr-ecp5`, `nextpnr-nexus`, `nextpnr-gowin`
+- Simulation/lint: `ghdl`, `iverilog`, `vvp`, `verilator`, `verible-verilog-lint`
+- Formal verification: `sby`
+- Programming: `iceprog`, `openFPGALoader`, `ecpprog`
+- Python: only `python -m litex_boards.*` or `python -m litex.*` (all Python versions accepted)
+
+**Blocked:** `python -c`, arbitrary scripts, non-EDA binaries.
 
 ## build_status
 
@@ -88,6 +105,25 @@ No parameters. Returns a list of all tracked builds (no full log parsing for spe
 
 Sends SIGTERM, waits 5s, then SIGKILL if needed.
 
+## cleanup_build_logs
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `max_age_days` | integer | `7` | Delete logs older than this many days |
+| `max_total_mb` | integer | `500` | Target max total log size in MB |
+
+Deletes old logs first, then trims by size (oldest first).
+
+## File Locations
+
+| What | Location |
+|---|---|
+| Build logs | `<cwd>/no_commit/builds/<build_id>.log` |
+| Build subprocess cwd | `work_dir` parameter, or server's cwd |
+| Tool-generated artifacts | Wherever the tool writes them relative to subprocess cwd |
+
+**Important for Vivado/Quartus:** These tools create large directory trees (`.runs/`, `.cache/`, project files) in their working directory. Always set `work_dir` to a dedicated build directory to avoid polluting the server's cwd.
+
 ## Internals
 
 - Build logs are written to `no_commit/builds/<build_id>.log`
@@ -103,7 +139,7 @@ Sends SIGTERM, waits 5s, then SIGKILL if needed.
 
 > "Cancel build a3f2c1b0."
 
-> "What builds are running?"
+> "Clean up old build logs."
 
 ### Python
 
@@ -112,23 +148,18 @@ from tools.build_manager import BuildManager
 
 mgr = BuildManager()
 
-# Start a build
-result = mgr.start(cmd=["yosys", "-s", "synth.ys"], label="ECP5 synth")
+# Start a build (must be in the allowlist)
+result = mgr.start(
+    cmd=["yosys", "-s", "synth.ys"],
+    label="ECP5 synth",
+    work_dir="/path/to/build/dir",
+)
 build_id = result["build_id"]
 
-# Check status (with full log parsing)
+# Check status
 status = mgr.status(build_id)
 print(status["build_info"]["phase_label"])
-print(status["build_info"]["health"])
 
-# Fast polling (no log parsing)
-status = mgr.status(build_id, parse=False)
-print(status["status"], status["elapsed_s"])
-
-# List all builds
-for b in mgr.list_builds():
-    print(f"{b['build_id']} [{b['status']}] {b['label']}")
-
-# Cancel
-mgr.cancel(build_id)
+# Clean up old logs
+mgr.cleanup_logs(max_age_days=3)
 ```

@@ -79,6 +79,40 @@ def _validate_filename(fname: str) -> str | None:
     return None
 
 
+def _parse_filelist(filelist_path: str, base_dir: str) -> tuple[list[str], list[str], list[str]]:
+    """Parse a files.f / filelist (one path per line, +incdir+, +define+).
+
+    Returns (source_files, include_dirs, defines).
+    Paths are resolved relative to base_dir.
+    """
+    sources: list[str] = []
+    incdirs: list[str] = []
+    defines: list[str] = []
+
+    with open(filelist_path, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("//"):
+                continue
+            if line.startswith("+incdir+"):
+                d = line[len("+incdir+"):]
+                incdirs.append(str(Path(base_dir, d).resolve()))
+            elif line.startswith("+define+"):
+                defines.append(line[len("+define+"):])
+            elif line.startswith("-f "):
+                # Nested filelist — resolve recursively
+                nested = str(Path(base_dir, line[3:].strip()).resolve())
+                if os.path.isfile(nested):
+                    s, i, d = _parse_filelist(nested, os.path.dirname(nested))
+                    sources.extend(s)
+                    incdirs.extend(i)
+                    defines.extend(d)
+            else:
+                sources.append(str(Path(base_dir, line).resolve()))
+
+    return sources, incdirs, defines
+
+
 def _resolve_sources(
     code: str = "",
     files: dict[str, str] | None = None,
@@ -90,6 +124,10 @@ def _resolve_sources(
 
     Returns (list_of_file_paths, error_string_or_None).
     Paths are absolute; for code/files modes they live inside tmpdir.
+
+    In project_dir mode, if a files.f filelist exists in the project root,
+    it is used instead of globbing. This supports compile order, +incdir+,
+    and +define+ directives.
     """
     modes = sum([bool(code), bool(files), bool(project_dir)])
     if modes == 0:
@@ -105,6 +143,16 @@ def _resolve_sources(
             return [], path_err
         if not os.path.isdir(project_dir):
             return [], f"project_dir does not exist: '{project_dir}'"
+        # Check for filelist first (files.f, sources.f)
+        for filelist_name in ("files.f", "sources.f"):
+            filelist_path = os.path.join(project_dir, filelist_name)
+            if os.path.isfile(filelist_path):
+                sources, _incdirs, _defines = _parse_filelist(
+                    filelist_path, project_dir,
+                )
+                if sources:
+                    return sources, None
+        # Fallback: glob for HDL files
         found: list[str] = []
         for ext in exts:
             found.extend(glob.glob(os.path.join(project_dir, "**", f"*{ext}"), recursive=True))
@@ -139,13 +187,30 @@ def _resolve_sources(
     return [src_path], None
 
 
-def _yosys_read_cmds(src_paths: list[str], language: str, top_module: str = "") -> str:
+def _yosys_read_cmds(
+    src_paths: list[str],
+    language: str,
+    top_module: str = "",
+    include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+) -> str:
     """Generate Yosys read commands for the given language and source files.
 
     For VHDL, emits a single ghdl invocation that analyzes all files and
     elaborates the top module (requires ghdl-yosys-plugin, shipped in OSS CAD Suite).
+    include_dirs: directories to add as -I flags for Verilog/SV `include resolution.
+    defines: preprocessor defines to add as -D flags for Verilog/SV.
     """
     paths = [p.replace("\\", "/") for p in src_paths]
+    extra_flags = ""
+    if language != "vhdl":
+        parts: list[str] = []
+        if include_dirs:
+            parts.extend(f"-I{d.replace(chr(92), '/')}" for d in include_dirs)
+        if defines:
+            parts.extend(f"-D{d}" for d in defines)
+        if parts:
+            extra_flags = " ".join(parts) + " "
 
     if language == "vhdl":
         # Single ghdl command: analyze all files + elaborate in one invocation
@@ -157,10 +222,10 @@ def _yosys_read_cmds(src_paths: list[str], language: str, top_module: str = "") 
     lines: list[str] = []
     if language == "systemverilog":
         for p in paths:
-            lines.append(f"read_verilog -sv {p}")
+            lines.append(f"read_verilog -sv {extra_flags}{p}")
     else:
         for p in paths:
-            lines.append(f"read_verilog {p}")
+            lines.append(f"read_verilog {extra_flags}{p}")
 
     return "\n".join(lines) + "\n"
 
@@ -212,8 +277,28 @@ def synthesize(
         ys_script = os.path.join(tmpdir, "synth.ys")
         out_json_yosys = out_json.replace("\\", "/")
 
+        # Auto-detect include directories and defines from project_dir
+        include_dirs: list[str] = []
+        defines: list[str] = []
+        if project_dir:
+            resolved_proj = str(Path(project_dir).resolve())
+            include_dirs.append(resolved_proj)
+            # Check filelist for +incdir+ and +define+
+            for filelist_name in ("files.f", "sources.f"):
+                filelist_path = os.path.join(project_dir, filelist_name)
+                if os.path.isfile(filelist_path):
+                    _, fl_incdirs, fl_defines = _parse_filelist(filelist_path, project_dir)
+                    include_dirs.extend(fl_incdirs)
+                    defines.extend(fl_defines)
+                    break
+            # Also add subdirectories containing headers
+            for root, _dirs, fnames in os.walk(resolved_proj):
+                if any(f.endswith((".vh", ".svh")) for f in fnames):
+                    if root not in include_dirs:
+                        include_dirs.append(root)
+
         # _yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
-        read_cmds = _yosys_read_cmds(src_paths, language, top_module)
+        read_cmds = _yosys_read_cmds(src_paths, language, top_module, include_dirs)
 
         # ghdl-yosys-plugin lowercases VHDL entity names during import
         yosys_top = top_module.lower() if language == "vhdl" else top_module

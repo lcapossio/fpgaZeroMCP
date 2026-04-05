@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import base64
+import glob as _glob
 import os
 import re
 import subprocess
+from pathlib import Path
 
+from tools.boards import get_board_preset, BOARD_PRESETS
 from tools.synthesize import SYNTH_CMDS, validate_top_module, _resolve_sources, _yosys_read_cmds
 from tools.workspace import temporary_workspace
 
@@ -35,6 +38,24 @@ OUTPUT_EXT = {
 }
 
 
+def _find_constraints(project_dir: str, target: str) -> str | None:
+    """Auto-detect a constraint file in project_dir for the given target.
+
+    Returns the file path if found, else None.
+    """
+    ext = CONSTRAINTS_EXT.get(target)
+    if not ext:
+        return None
+    matches = _glob.glob(os.path.join(project_dir, f"**/*{ext}"), recursive=True)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        # Prefer files in root over subdirectories, then shortest path
+        matches.sort(key=lambda p: (p.count(os.sep), len(p)))
+        return matches[0]
+    return None
+
+
 def place_and_route(
     code: str = "",
     top_module: str = "",
@@ -45,6 +66,9 @@ def place_and_route(
     language: str = "verilog",
     files: dict[str, str] | None = None,
     project_dir: str | None = None,
+    board: str | None = None,
+    nextpnr_args: list[str] | None = None,
+    work_dir: str | None = None,
     timeout: int = 300,
     backend: str = "yosys",
     litex_board: str | None = None,
@@ -58,14 +82,14 @@ def place_and_route(
       project_dir: path to a directory containing HDL files on disk
 
     language: "verilog" (default), "systemverilog", or "vhdl".
+    board: optional board preset (e.g. "icebreaker") — sets target/device/package/clock.
+    nextpnr_args: extra arguments passed to nextpnr (e.g. ["--seed", "42"]).
+    work_dir: path to a persistent working directory. If provided, files and
+              synthesis artifacts are kept across runs for incremental workflows.
+              The path is returned in the response for reuse.
 
-    Common device/package values:
-      ice40:  device=hx1k|hx8k|up5k|lp1k  package=tq144|qn84|sg48|cm81
-      ecp5:   device=25k|45k|85k           package=CABGA256|CABGA381
-      nexus:  device=LIFCL-40-9BG400C      (package embedded in device string)
-      gowin:  device=GW1N-UV4LQ144C6/I5   (package embedded in device string)
-
-    constraints: optional PCF (ice40), LPF (ecp5), PDC (nexus), or CST (gowin) text.
+    constraints: optional PCF/LPF/PDC/CST text. If omitted and project_dir is
+                 used, auto-detects constraint files from the project directory.
     """
     if backend == "litex":
         if not litex_board:
@@ -75,6 +99,13 @@ def place_and_route(
         result["backend"] = "litex"
         result["note"] = "LiteX backend ignores code/top_module/target/device and runs board build."
         return result
+
+    # Apply board preset (explicit params override preset values)
+    preset = get_board_preset(board) if board else None
+    if preset:
+        target = target or preset["target"]
+        device = device or preset["device"]
+        package = package or preset.get("package", "")
 
     if not target or target not in NEXTPNR_BIN:
         supported = list(NEXTPNR_BIN.keys())
@@ -89,7 +120,13 @@ def place_and_route(
     if top_err:
         return {"success": False, "error": top_err}
 
-    with temporary_workspace("pnr_") as tmpdir:
+    # Determine whether to use a persistent work_dir or a temp workspace
+    use_persistent = bool(work_dir)
+    if use_persistent:
+        os.makedirs(work_dir, exist_ok=True)  # type: ignore[arg-type]
+        tmpdir = work_dir  # type: ignore[assignment]
+
+    def _run_in(tmpdir: str) -> dict:
         src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
             return {"success": False, "error": err}
@@ -99,8 +136,18 @@ def place_and_route(
         out_file     = os.path.join(tmpdir, f"out{OUTPUT_EXT[target]}")
         cst_file     = os.path.join(tmpdir, f"constraints{CONSTRAINTS_EXT[target]}")
 
+        # Auto-detect include directories from project_dir
+        include_dirs: list[str] = []
+        if project_dir:
+            resolved_proj = str(Path(project_dir).resolve())
+            include_dirs.append(resolved_proj)
+            for root, _dirs, fnames in os.walk(resolved_proj):
+                if any(f.endswith((".vh", ".svh")) for f in fnames):
+                    if root != resolved_proj:
+                        include_dirs.append(root)
+
         # _yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
-        read_cmds = _yosys_read_cmds(src_paths, language, top_module)
+        read_cmds = _yosys_read_cmds(src_paths, language, top_module, include_dirs)
         netlist_yosys = netlist_json.replace("\\", "/")
 
         # ghdl-yosys-plugin lowercases VHDL entity names during import
@@ -114,7 +161,7 @@ def place_and_route(
             f.write(script)
 
         # ------------------------------------------------------------------
-        # Stage 1: Synthesis (capped to 1/3 of total, never exceeds deadline)
+        # Stage 1: Synthesis
         # ------------------------------------------------------------------
         import time as _time
         deadline = _time.monotonic() + timeout
@@ -142,17 +189,29 @@ def place_and_route(
                     "error": "Yosys did not produce a netlist JSON.",
                     "stdout": synth.stdout, "stderr": synth.stderr}
 
+        # Resolve constraints: explicit string > auto-detect from project_dir
+        effective_cst: str | None = None
+        cst_source = "none"
         if constraints:
             with open(cst_file, "w", encoding="utf-8") as f:
                 f.write(constraints)
+            effective_cst = cst_file
+            cst_source = "provided"
+        elif project_dir:
+            auto_cst = _find_constraints(project_dir, target)
+            if auto_cst:
+                effective_cst = auto_cst
+                cst_source = f"auto-detected: {os.path.basename(auto_cst)}"
 
         # ------------------------------------------------------------------
         # Stage 2: Place and route
         # ------------------------------------------------------------------
         cmd = _build_cmd(
             NEXTPNR_BIN[target], target, device, package,
-            netlist_json, out_file, cst_file if constraints else None,
+            netlist_json, out_file, effective_cst,
         )
+        if nextpnr_args:
+            cmd.extend(nextpnr_args)
 
         pnr_timeout = int(deadline - _time.monotonic())
         if pnr_timeout < 10:
@@ -177,7 +236,7 @@ def place_and_route(
 
         combined_output = pnr.stdout + pnr.stderr
 
-        result = {
+        result: dict = {
             "success":     pnr.returncode == 0,
             "stage":       "place_and_route",
             "target":      target,
@@ -185,12 +244,28 @@ def place_and_route(
             "package":     package,
             "language":    language,
             "top_module":  top_module,
+            "constraints": cst_source,
             "timing":      _parse_timing(combined_output),
             "utilization": _parse_utilization(combined_output, target),
             "synth_log":   synth.stdout,
             "pnr_stdout":  pnr.stdout,
             "pnr_stderr":  pnr.stderr,
         }
+
+        # Evaluate timing against board clock target
+        if preset and preset.get("clock_mhz"):
+            target_mhz = preset["clock_mhz"]
+            fmax = result["timing"].get("max_freq_mhz")
+            result["timing"]["target_mhz"] = target_mhz
+            if fmax is not None:
+                result["timing"]["meets_target"] = fmax >= target_mhz
+
+        if board:
+            result["board"] = board
+        if use_persistent:
+            result["work_dir"] = tmpdir
+        if nextpnr_args:
+            result["nextpnr_args"] = nextpnr_args
 
         # Include bitstream/config output if PnR succeeded
         if pnr.returncode == 0 and os.path.exists(out_file):
@@ -199,6 +274,12 @@ def place_and_route(
             result["bitstream_ext"] = OUTPUT_EXT[target]
 
         return result
+
+    if use_persistent:
+        return _run_in(tmpdir)
+    else:
+        with temporary_workspace("pnr_") as tmpdir:
+            return _run_in(tmpdir)
 
 
 def _build_cmd(

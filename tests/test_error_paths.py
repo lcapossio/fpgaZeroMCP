@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from uuid import uuid4
@@ -11,10 +12,11 @@ from uuid import uuid4
 import pytest
 
 from registry.resolver import CoreRegistry
-from tools.synthesize import synthesize, validate_top_module, _resolve_sources, _yosys_read_cmds
-from tools.pnr import place_and_route
-from tools.simulate import simulate
+from tools.synthesize import synthesize, validate_top_module, _resolve_sources, _yosys_read_cmds, _parse_filelist
+from tools.pnr import place_and_route, _find_constraints
+from tools.simulate import simulate, _parse_verdict, _summarize_vcd
 from tools.lint import lint_hdl, lint_project
+from tools.boards import get_board_preset, list_boards
 from tools.build_manager import BuildManager
 from tools.build_parser import parse_build_log
 from registry.fusesoc import capi2_to_manifest_dict, _parse_name, _collect_hdl_files, _collect_parameters
@@ -688,6 +690,199 @@ class TestBuildManager:
         time.sleep(0.5)
         result = mgr.clear_finished()
         assert result["cleared"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Board presets
+# ---------------------------------------------------------------------------
+
+class TestBoardPresets:
+    def test_icebreaker_preset(self) -> None:
+        p = get_board_preset("icebreaker")
+        assert p is not None
+        assert p["target"] == "ice40"
+        assert p["device"] == "up5k"
+        assert p["clock_mhz"] == 12.0
+
+    def test_ulx3s_preset(self) -> None:
+        p = get_board_preset("ulx3s_85f")
+        assert p is not None
+        assert p["target"] == "ecp5"
+        assert p["clock_mhz"] == 25.0
+
+    def test_unknown_board_returns_none(self) -> None:
+        assert get_board_preset("nonexistent_board") is None
+
+    def test_case_insensitive_hyphen(self) -> None:
+        assert get_board_preset("TinyFPGA-BX") is not None
+
+    def test_list_boards(self) -> None:
+        boards = list_boards()
+        assert len(boards) > 5
+        assert all("board" in b and "target" in b for b in boards)
+
+    def test_pnr_board_resolves_target(self) -> None:
+        # board="icebreaker" should fill in target/device/package
+        result = place_and_route(
+            code="module top(input a, output y); assign y = a; endmodule",
+            top_module="top",
+            board="icebreaker",
+        )
+        # Will fail (no yosys) but should NOT fail on "unsupported target"
+        if "error" in result:
+            assert "Unsupported PnR target" not in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Constraint auto-detection
+# ---------------------------------------------------------------------------
+
+class TestConstraintAutoDetect:
+    def test_finds_pcf_in_project_dir(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "top.v").write_text("module top; endmodule", encoding="utf-8")
+        (tmpdir / "pins.pcf").write_text("set_io clk 35", encoding="utf-8")
+        found = _find_constraints(str(tmpdir), "ice40")
+        assert found is not None
+        assert found.endswith(".pcf")
+
+    def test_returns_none_when_no_constraints(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "top.v").write_text("module top; endmodule", encoding="utf-8")
+        assert _find_constraints(str(tmpdir), "ice40") is None
+
+    def test_prefers_root_over_subdir(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "root.pcf").write_text("set_io clk 35", encoding="utf-8")
+        sub = tmpdir / "subdir"
+        sub.mkdir()
+        (sub / "sub.pcf").write_text("set_io clk 36", encoding="utf-8")
+        found = _find_constraints(str(tmpdir), "ice40")
+        assert "root.pcf" in found
+
+
+# ---------------------------------------------------------------------------
+# Filelist parsing
+# ---------------------------------------------------------------------------
+
+class TestFilelistParsing:
+    def test_basic_filelist(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
+        (tmpdir / "b.v").write_text("module b; endmodule", encoding="utf-8")
+        (tmpdir / "files.f").write_text("a.v\nb.v\n", encoding="utf-8")
+        sources, incdirs, defines = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
+        assert len(sources) == 2
+
+    def test_incdir_and_define(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "files.f").write_text(
+            "+incdir+rtl/include\n+define+SIMULATION\na.v\n",
+            encoding="utf-8",
+        )
+        (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
+        sources, incdirs, defines = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
+        assert len(sources) == 1
+        assert any("include" in d for d in incdirs)
+        assert "SIMULATION" in defines
+
+    def test_comments_and_blanks_ignored(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "files.f").write_text("# comment\n\n// another\na.v\n", encoding="utf-8")
+        (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
+        sources, _, _ = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
+        assert len(sources) == 1
+
+    def test_project_dir_uses_filelist(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "b.v").write_text("module b; endmodule", encoding="utf-8")
+        (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
+        # files.f specifies order: b.v first
+        (tmpdir / "files.f").write_text("b.v\na.v\n", encoding="utf-8")
+        paths, err = _resolve_sources(project_dir=str(tmpdir), language="verilog")
+        assert err is None
+        # Order should match filelist, not alphabetical glob
+        basenames = [os.path.basename(p) for p in paths]
+        assert basenames == ["b.v", "a.v"]
+
+
+# ---------------------------------------------------------------------------
+# Simulation verdict parsing
+# ---------------------------------------------------------------------------
+
+class TestSimulationVerdict:
+    def test_pass_detected(self) -> None:
+        v = _parse_verdict("TEST PASSED\n", "", 0)
+        assert v["verdict"] == "pass"
+
+    def test_fail_detected(self) -> None:
+        v = _parse_verdict("ASSERTION FAILED at line 42\n", "", 0)
+        assert v["verdict"] == "fail"
+
+    def test_nonzero_exit_is_fail(self) -> None:
+        v = _parse_verdict("something\n", "", 1)
+        assert v["verdict"] == "fail"
+
+    def test_inconclusive(self) -> None:
+        v = _parse_verdict("value = 42\n", "", 0)
+        assert v["verdict"] == "inconclusive"
+
+    def test_fail_overrides_pass(self) -> None:
+        v = _parse_verdict("TEST PASSED\nASSERTION FAILED\n", "", 1)
+        assert v["verdict"] == "fail"
+
+
+# ---------------------------------------------------------------------------
+# VCD summary
+# ---------------------------------------------------------------------------
+
+class TestVcdSummary:
+    def test_basic_vcd(self) -> None:
+        vcd = (
+            "$var wire 1 ! clk $end\n"
+            "$var wire 1 \" data $end\n"
+            "$enddefinitions $end\n"
+            "#0\n0!\n0\"\n"
+            "#10\n1!\n1\"\n"
+            "#20\n0!\n"
+        )
+        summary = _summarize_vcd(vcd)
+        assert summary["signal_count"] == 2
+        assert "clk" in summary["signals"]
+        assert summary["end_time"] == "20"
+        assert summary["final_values"]["clk"] == "0"
+        assert summary["final_values"]["data"] == "1"
+
+    def test_empty_vcd(self) -> None:
+        summary = _summarize_vcd("")
+        assert summary["signal_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Include paths in yosys read commands
+# ---------------------------------------------------------------------------
+
+class TestIncludePaths:
+    def test_include_dirs_in_read_verilog(self) -> None:
+        result = _yosys_read_cmds(
+            ["/tmp/a.v"], "verilog", include_dirs=["/project/rtl", "/project/inc"],
+        )
+        assert "-I/project/rtl" in result
+        assert "-I/project/inc" in result
+
+    def test_defines_in_read_verilog(self) -> None:
+        result = _yosys_read_cmds(
+            ["/tmp/a.v"], "verilog", defines=["SIMULATION", "WIDTH=8"],
+        )
+        assert "-DSIMULATION" in result
+        assert "-DWIDTH=8" in result
+
+    def test_no_include_dirs_for_vhdl(self) -> None:
+        result = _yosys_read_cmds(
+            ["/tmp/a.vhd"], "vhdl", top_module="top",
+            include_dirs=["/project/inc"],
+        )
+        assert "-I" not in result
 
 
 class TestBuildParser:

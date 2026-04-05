@@ -1,13 +1,17 @@
 # synthesize -- Yosys Synthesis
 
-Synthesize Verilog designs using Yosys. Returns resource statistics and inferred module names.
+Synthesize HDL designs (Verilog, SystemVerilog, VHDL) using Yosys. Returns resource statistics and inferred module names.
 
 ## Index
 
 - [MCP Tool](#mcp-tool)
+- [Source Input Modes](#source-input-modes)
+- [Language Support](#language-support)
 - [Backends](#backends)
 - [Supported Targets](#supported-targets)
 - [Parameters](#parameters)
+- [Filelist Support](#filelist-support)
+- [Include Path Resolution](#include-path-resolution)
 - [Response](#response)
 - [Top Module Validation](#top-module-validation)
 - [Usage](#usage)
@@ -15,6 +19,26 @@ Synthesize Verilog designs using Yosys. Returns resource statistics and inferred
 ## MCP Tool
 
 `synthesize`
+
+## Source Input Modes
+
+Provide exactly one:
+
+| Mode | Parameter | Description |
+|---|---|---|
+| Single file | `code` | HDL source as a string |
+| Multi-file | `files` | Dict of `filename -> source code` |
+| Disk project | `project_dir` | Path to directory containing HDL files |
+
+`project_dir` is restricted to directories under the server's working directory, `$HOME`, or paths listed in `FPGAZERO_ALLOWED_DIRS`.
+
+## Language Support
+
+| Language | Yosys Read Command | Notes |
+|---|---|---|
+| `verilog` | `read_verilog file.v` | Default |
+| `systemverilog` | `read_verilog -sv file.sv` | Yosys SV subset |
+| `vhdl` | `ghdl --std=08 files... -e top` | Requires ghdl-yosys-plugin (in OSS CAD Suite). Entity names are lowercased during import. |
 
 ## Backends
 
@@ -39,13 +63,39 @@ Synthesize Verilog designs using Yosys. Returns resource statistics and inferred
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `code` | string | *(required)* | Verilog source code |
-| `top_module` | string | *(required)* | Top-level module name (validated as a legal Verilog identifier) |
+| `code` | string | `""` | HDL source code (single-file mode) |
+| `files` | object | `null` | Multi-file mode: `{"filename": "source code", ...}` |
+| `project_dir` | string | `null` | Disk mode: path to directory with HDL files |
+| `top_module` | string | *(required)* | Top-level module name |
+| `language` | string | `"verilog"` | `verilog`, `systemverilog`, or `vhdl` |
 | `target` | string | `"generic"` | FPGA family / synthesis target |
 | `backend` | string | `"yosys"` | `yosys` or `litex` |
 | `litex_board` | string | `null` | LiteX board target (required if backend=litex) |
 | `litex_args` | array | `null` | Extra LiteX CLI args |
 | `timeout` | integer | `120` | Timeout in seconds (clamped to 1-3600) |
+
+## Filelist Support
+
+When using `project_dir`, if a `files.f` or `sources.f` file exists in the project root, it is parsed instead of globbing. Supported directives:
+
+```
+# Comment lines (# or //)
+rtl/top.v
+rtl/sub.v
++incdir+rtl/include
++define+SYNTHESIS
+-f nested_filelist.f
+```
+
+This preserves compile order and supports include paths and defines.
+
+## Include Path Resolution
+
+For Verilog/SystemVerilog, include paths are auto-detected:
+- `project_dir` root is always added as `-I`
+- Subdirectories containing `.vh` or `.svh` files are added automatically
+- `+incdir+` directives from filelists are included
+- `+define+` directives are passed as `-D` flags to `read_verilog`
 
 ## Response
 
@@ -53,12 +103,18 @@ Synthesize Verilog designs using Yosys. Returns resource statistics and inferred
 {
   "success": true,
   "target": "ice40",
+  "language": "verilog",
   "top_module": "top",
   "modules": ["top", "sub"],
   "stdout": "...",
-  "stderr": ""
+  "stderr": "",
+  "files": ["top.v", "sub.v"],
+  "project_dir": "/path/to/project",
+  "source_files": ["rtl/top.v", "rtl/sub.v"]
 }
 ```
+
+`files` and `project_dir`/`source_files` are only present in the respective input modes.
 
 ## Top Module Validation
 
@@ -73,27 +129,36 @@ The `top_module` name must be a valid Verilog identifier:
 
 > "Synthesize this design for iCE40 and tell me the LUT count."
 
-> "Run generic synthesis on my counter module."
+> "Synthesize the VHDL files in ~/projects/my_fpga for ECP5."
 
 ### Python
 
 ```python
 from tools.synthesize import synthesize
 
-# Generic synthesis
-result = synthesize(
-    code=open("counter.v").read(),
-    top_module="counter",
-    target="generic",
-)
-print(result["success"])  # True
-print(result["modules"])  # ["counter"]
+# Single file
+result = synthesize(code="module top(...); endmodule", top_module="top")
 
-# Target-specific
+# Multi-file
 result = synthesize(
-    code=open("blinky.v").read(),
-    top_module="blinky",
+    files={"top.v": "...", "sub.v": "..."},
+    top_module="top",
     target="ice40",
-    timeout=180,
+)
+
+# Project on disk
+result = synthesize(
+    project_dir="/home/user/my_fpga/",
+    top_module="top",
+    language="systemverilog",
+    target="ecp5",
+)
+
+# VHDL
+result = synthesize(
+    code=open("design.vhd").read(),
+    top_module="my_entity",
+    language="vhdl",
+    target="generic",
 )
 ```

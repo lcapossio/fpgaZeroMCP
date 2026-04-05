@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import subprocess
 
 from tools.workspace import temporary_workspace
@@ -62,6 +63,7 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
                 "stage": "run",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
+                "verdict": _parse_verdict(run_result.stdout, run_result.stderr, run_result.returncode),
             }
             result.update(_collect_waveforms(tmpdir))
             return result
@@ -150,6 +152,7 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
                 "stage": "run",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
+                "verdict": _parse_verdict(run_result.stdout, run_result.stderr, run_result.returncode),
             }
             result.update(_collect_waveforms(tmpdir))
             return result
@@ -169,9 +172,75 @@ def _find_vhdl_entity(code: str) -> str | None:
 
 _MAX_VCD_SIZE = 512 * 1024  # 512 KB cap for inline VCD
 
+# Patterns for pass/fail detection in simulation output
+_PASS_PATTERNS = re.compile(
+    r"\bPASS\b|TEST\s+PASSED|SIMULATION\s+PASSED|All\s+tests\s+passed|UVM_PASS",
+    re.IGNORECASE,
+)
+_FAIL_PATTERNS = re.compile(
+    r"\bFAIL\b|TEST\s+FAILED|SIMULATION\s+FAILED|ASSERTION\s+FAILED"
+    r"|UVM_ERROR|UVM_FATAL|\$fatal\b|Error:",
+    re.IGNORECASE,
+)
+
+
+def _parse_verdict(stdout: str, stderr: str, returncode: int) -> dict:
+    """Determine pass/fail from simulation output.
+
+    Returns {"verdict": "pass"|"fail"|"inconclusive", "reason": "..."}.
+    """
+    combined = stdout + stderr
+
+    fail_match = _FAIL_PATTERNS.search(combined)
+    pass_match = _PASS_PATTERNS.search(combined)
+
+    if returncode != 0:
+        reason = fail_match.group(0) if fail_match else "non-zero exit code"
+        return {"verdict": "fail", "reason": reason}
+    if fail_match:
+        return {"verdict": "fail", "reason": fail_match.group(0)}
+    if pass_match:
+        return {"verdict": "pass", "reason": pass_match.group(0)}
+    return {"verdict": "inconclusive", "reason": "no PASS/FAIL pattern detected in output"}
+
+
+def _summarize_vcd(vcd_text: str) -> dict:
+    """Extract a lightweight summary from VCD text.
+
+    Returns signal list, total simulation time, and end-of-sim values.
+    """
+    signals: dict[str, str] = {}  # id -> name
+    end_time = ""
+    final_values: dict[str, str] = {}  # signal_name -> value
+
+    # Parse signal declarations: $var wire 1 ! clk $end
+    var_pat = re.compile(r"\$var\s+\w+\s+\d+\s+(\S+)\s+(\S+)")
+    for m in var_pat.finditer(vcd_text):
+        sig_id, sig_name = m.groups()
+        signals[sig_id] = sig_name
+
+    # Track time and final values
+    for line in vcd_text.splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            end_time = line[1:]
+        elif len(line) >= 2 and line[0] in "01xzXZ" and line[1:] in signals:
+            final_values[signals[line[1:]]] = line[0]
+        elif line.startswith("b") and " " in line:
+            val, sid = line.split(" ", 1)
+            if sid in signals:
+                final_values[signals[sid]] = val
+
+    return {
+        "signal_count": len(signals),
+        "signals": list(signals.values()),
+        "end_time": end_time,
+        "final_values": final_values,
+    }
+
 
 def _collect_waveforms(tmpdir: str) -> dict:
-    """Return VCD/FST waveform data if produced by the simulation."""
+    """Return VCD waveform data and summary if produced by the simulation."""
     extras: dict = {}
     vcd_files = glob.glob(os.path.join(tmpdir, "*.vcd"))
     if vcd_files:
@@ -179,7 +248,9 @@ def _collect_waveforms(tmpdir: str) -> dict:
         size = os.path.getsize(vcd_path)
         if size <= _MAX_VCD_SIZE:
             with open(vcd_path, "r", encoding="utf-8", errors="replace") as f:
-                extras["vcd"] = f.read()
+                vcd_text = f.read()
+            extras["vcd"] = vcd_text
+            extras["vcd_summary"] = _summarize_vcd(vcd_text)
         else:
             extras["vcd_truncated"] = True
             extras["vcd_size_kb"] = round(size / 1024, 1)

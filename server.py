@@ -19,8 +19,10 @@ from tools.lsp import format_hdl, get_diagnostics
 from tools.pnr import place_and_route
 from tools.simulate import simulate
 from tools.synthesize import synthesize
+from tools.boards import list_boards
 from tools.build_manager import BuildManager
 from tools.healthcheck import check_tools
+from tools.program import program_fpga
 
 app = Server("fpgaZeroMCP")
 registry = CoreRegistry()
@@ -229,8 +231,24 @@ async def handle_list_tools() -> list[types.Tool]:
                         "items": {"type": "string"},
                         "description": "Extra LiteX CLI args (backend=litex)",
                     },
+                    "board": {
+                        "type": "string",
+                        "description": (
+                            "Board preset (e.g. 'icebreaker', 'ulx3s_85f'). "
+                            "Sets target/device/package/clock automatically."
+                        ),
+                    },
+                    "nextpnr_args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Extra nextpnr arguments (e.g. ['--seed', '42', '--placer', 'heap'])",
+                    },
+                    "work_dir": {
+                        "type": "string",
+                        "description": "Persistent working directory for incremental runs. Returned in response for reuse.",
+                    },
                 },
-                "required": ["top_module", "target", "device"],
+                "required": ["top_module"],
             },
         ),
         types.Tool(
@@ -602,6 +620,47 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="program_fpga",
+            description=(
+                "Flash a bitstream to an FPGA board using iceprog (ice40) or openFPGALoader (ecp5/gowin/nexus). "
+                "Provide bitstream as base64 (from place_and_route output) or a file path on disk."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": ["ice40", "ecp5", "nexus", "gowin"],
+                        "description": "FPGA family (used to select default programmer)",
+                    },
+                    "bitstream_b64": {
+                        "type": "string",
+                        "description": "Base64-encoded bitstream (from place_and_route bitstream_b64 field)",
+                    },
+                    "bitstream_path": {
+                        "type": "string",
+                        "description": "Path to bitstream file on disk",
+                    },
+                    "programmer": {
+                        "type": "string",
+                        "enum": ["iceprog", "openFPGALoader"],
+                        "description": "Programmer tool (auto-detected from target if omitted)",
+                    },
+                    "board": {
+                        "type": "string",
+                        "description": "openFPGALoader --board flag (e.g. 'ulx3s', 'tangnano9k')",
+                    },
+                    "timeout": {"type": "integer", "default": 60, "description": "Timeout in seconds"},
+                },
+                "required": ["target"],
+            },
+        ),
+        types.Tool(
+            name="list_boards",
+            description="List all known FPGA board presets with target, device, package, and clock frequency.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -649,13 +708,16 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     place_and_route,
                     code=arguments.get("code", ""),
                     top_module=arguments["top_module"],
-                    target=arguments["target"],
-                    device=arguments["device"],
+                    target=arguments.get("target", ""),
+                    device=arguments.get("device", ""),
                     package=arguments.get("package", ""),
                     constraints=arguments.get("constraints", ""),
                     language=arguments.get("language", "verilog"),
                     files=arguments.get("files"),
                     project_dir=arguments.get("project_dir"),
+                    board=arguments.get("board"),
+                    nextpnr_args=arguments.get("nextpnr_args"),
+                    work_dir=arguments.get("work_dir"),
                     timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),
@@ -763,6 +825,18 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     max_age_days=arguments.get("max_age_days", 7),
                     max_total_mb=arguments.get("max_total_mb", 500),
                 )
+            case "program_fpga":
+                result = await asyncio.to_thread(
+                    program_fpga,
+                    target=arguments["target"],
+                    bitstream_b64=arguments.get("bitstream_b64", ""),
+                    bitstream_path=arguments.get("bitstream_path", ""),
+                    programmer=arguments.get("programmer", ""),
+                    board=arguments.get("board", ""),
+                    timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
+                )
+            case "list_boards":
+                result = list_boards()
             case _:
                 result = {"error": f"Unknown tool: '{name}'"}
 

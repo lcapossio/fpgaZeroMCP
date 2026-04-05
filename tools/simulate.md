@@ -8,6 +8,8 @@ Compile and run HDL simulations with design + testbench.
 - [Backends](#backends)
 - [Parameters](#parameters)
 - [Response](#response)
+- [Verdict Parsing](#verdict-parsing)
+- [VCD Waveform Output](#vcd-waveform-output)
 - [VHDL Notes](#vhdl-notes)
 - [Stages](#stages)
 - [Usage](#usage)
@@ -39,10 +41,43 @@ Compile and run HDL simulations with design + testbench.
   "success": true,
   "tool": "iverilog",
   "stage": "run",
-  "stdout": "y=0\ny=1\n",
-  "stderr": ""
+  "stdout": "TEST PASSED\n",
+  "stderr": "",
+  "verdict": {
+    "verdict": "pass",
+    "reason": "TEST PASSED"
+  },
+  "vcd": "...",
+  "vcd_summary": {
+    "signal_count": 4,
+    "signals": ["clk", "rst", "data_in", "data_out"],
+    "end_time": "1000",
+    "final_values": {"clk": "0", "rst": "0", "data_in": "1", "data_out": "1"}
+  }
 }
 ```
+
+## Verdict Parsing
+
+The `verdict` field scans simulation output for common pass/fail patterns:
+
+| Verdict | Condition |
+|---|---|
+| `"fail"` | Non-zero exit code, or output contains: `FAIL`, `TEST FAILED`, `ASSERTION FAILED`, `UVM_ERROR`, `UVM_FATAL`, `$fatal`, `Error:` |
+| `"pass"` | Exit code 0 and output contains: `PASS`, `TEST PASSED`, `SIMULATION PASSED`, `All tests passed`, `UVM_PASS` |
+| `"inconclusive"` | Exit code 0 but no recognized pass/fail pattern |
+
+The `reason` field shows the matched pattern or "non-zero exit code".
+
+## VCD Waveform Output
+
+If the simulation produces a `.vcd` file (via `$dumpfile`/`$dumpvars`), it is returned:
+
+- **`vcd`**: full VCD text (if under 512 KB)
+- **`vcd_summary`**: structured summary with signal list, end time, and final signal values
+- **`vcd_truncated` / `vcd_size_kb`**: returned instead of `vcd` if the file exceeds 512 KB
+
+The summary lets the AI reason about simulation results without parsing raw VCD.
 
 ## VHDL Notes
 
@@ -57,7 +92,7 @@ The `stage` field in the response indicates where execution stopped:
 | Stage | Meaning |
 |---|---|
 | `compile` | iverilog compilation failed |
-| `run` | Simulation ran (check `success` for pass/fail) |
+| `run` | Simulation ran (check `success` and `verdict` for result) |
 | `analyze_design` | GHDL failed analyzing the design file |
 | `analyze_testbench` | GHDL failed analyzing the testbench |
 | `elaborate` | GHDL elaboration failed |
@@ -68,23 +103,18 @@ The `stage` field in the response indicates where execution stopped:
 
 > "Simulate this FIFO with a testbench that writes 4 bytes then reads them back."
 
-> "Run the inverter VHDL testbench."
+> "Did the simulation pass or fail?"
 
 ### Python
 
 ```python
 from tools.simulate import simulate
 
-# Verilog simulation
-design = open("counter.v").read()
-tb = open("tb_counter.v").read()
-result = simulate(design, tb, timeout=30)
-print(result["success"])
-print(result["stdout"])
+result = simulate(design_code, tb_code, timeout=30)
+print(result["verdict"]["verdict"])  # "pass", "fail", or "inconclusive"
 
-# VHDL simulation
-design = open("inverter.vhd").read()
-tb = open("tb_inverter.vhd").read()
-result = simulate(design, tb, language="vhdl", timeout=10)
-print(result["stdout"] + result["stderr"])
+# Check waveform signals
+if "vcd_summary" in result:
+    print(result["vcd_summary"]["signals"])
+    print(result["vcd_summary"]["final_values"])
 ```
