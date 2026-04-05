@@ -80,6 +80,19 @@ class CoreRegistry:
         for extra in _extra_core_paths():
             self._load_dir(extra)
 
+    def reload(self) -> dict:
+        """Re-scan all core directories and rebuild the cache.
+
+        Call this after modifying config.json, adding cores to disk,
+        or changing the USERCORES_PATH environment variable.
+        """
+        self._load_all()
+        return {
+            "success": True,
+            "cores_loaded": len(self._cache),
+            "message": "Registry reloaded.",
+        }
+
     def _manifest_dict(self, manifest: CoreManifest) -> dict:
         return manifest.model_dump()
 

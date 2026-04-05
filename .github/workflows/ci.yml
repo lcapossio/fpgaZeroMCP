@@ -9,6 +9,29 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff check
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy tools/ registry/ server.py --ignore-missing-imports
+
   test:
     name: Unit tests (Python ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -29,13 +52,12 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      - name: Run unit tests (no EDA tools required)
-        run: pytest tests/ -v -m "not integration"
+      - name: Run unit tests with coverage
+        run: pytest tests/ -v -m "not integration" --cov=tools --cov=registry --cov=server --cov-report=term-missing
 
   integration:
     name: Integration tests (OSS CAD Suite)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - uses: actions/checkout@v4

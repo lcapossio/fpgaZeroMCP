@@ -87,7 +87,7 @@ def synthesize(
         try:
             result = subprocess.run(
                 ["yosys", "-s", ys_script],
-                capture_output=True, text=True, timeout=timeout,
+                capture_output=True, text=True, errors="replace", timeout=timeout,
             )
 
             modules: list[str] = []

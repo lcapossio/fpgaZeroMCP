@@ -82,7 +82,7 @@ def _verilator_diagnostics(tmpfile: str, language: str) -> dict:
     try:
         r = subprocess.run(
             ["verilator", "--lint-only", "--error-limit", "50"] + flags + [tmpfile],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
         diags = _parse_verilator(r.stdout + r.stderr, tmpfile)
         return {
@@ -125,7 +125,7 @@ def _verible_lint(tmpfile: str) -> dict:
     try:
         r = subprocess.run(
             ["verible-verilog-lint", tmpfile],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
         diags = _parse_verible(r.stdout + r.stderr, tmpfile)
         return {
@@ -168,7 +168,7 @@ def _verible_format(tmpfile: str, original: str) -> dict:
     try:
         r = subprocess.run(
             ["verible-verilog-format", tmpfile],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
         if r.returncode == 0:
             return {
@@ -197,7 +197,7 @@ def _ghdl_diagnostics(tmpfile: str) -> dict:
     try:
         r = subprocess.run(
             ["ghdl", "-a", "--std=08", tmpfile],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
         diags = _parse_ghdl(r.stdout + r.stderr, tmpfile)
         return {
@@ -240,7 +240,7 @@ def _vsg_format(tmpfile: str, original: str) -> dict:
         # vsg --fix edits the file in place
         r = subprocess.run(
             ["vsg", "--fix", "-f", tmpfile],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
         formatted = Path(tmpfile).read_text(encoding="utf-8")
         return {

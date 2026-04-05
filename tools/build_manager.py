@@ -194,14 +194,15 @@ class BuildManager:
             return {"error": f"Build '{build_id}' is not running (status: {record.status})."}
 
         proc = record._process
-        if proc:
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            record.returncode = proc.returncode
-            record.end_time = time.time()
+        if proc is None:
+            return {"error": f"Build '{build_id}' has no associated process."}
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        record.returncode = proc.returncode
+        record.end_time = time.time()
 
         return {
             "success": True,
@@ -217,3 +218,53 @@ class BuildManager:
             for bid in finished:
                 del self._builds[bid]
         return {"cleared": len(finished), "remaining": len(self._builds)}
+
+    @staticmethod
+    def cleanup_logs(max_age_days: int = 7, max_total_mb: int = 500) -> dict:
+        """Delete old build logs to reclaim disk space.
+
+        Removes logs older than max_age_days, then trims by size
+        (oldest first) until total size is under max_total_mb.
+        """
+        log_dir = Path("no_commit") / "builds"
+        if not log_dir.exists():
+            return {"deleted": 0, "freed_kb": 0}
+
+        import time as _time
+        cutoff = _time.time() - max_age_days * 86400
+        logs = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
+
+        deleted = 0
+        freed = 0
+
+        # Phase 1: delete old logs
+        for log in logs:
+            try:
+                st = log.stat()
+                if st.st_mtime < cutoff:
+                    freed += st.st_size
+                    log.unlink()
+                    deleted += 1
+            except OSError:
+                continue
+
+        # Phase 2: trim by total size
+        remaining = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
+        total = sum(p.stat().st_size for p in remaining)
+        max_bytes = max_total_mb * 1024 * 1024
+        for log in remaining:
+            if total <= max_bytes:
+                break
+            try:
+                sz = log.stat().st_size
+                log.unlink()
+                total -= sz
+                freed += sz
+                deleted += 1
+            except OSError:
+                continue
+
+        return {
+            "deleted": deleted,
+            "freed_kb": round(freed / 1024, 1),
+        }

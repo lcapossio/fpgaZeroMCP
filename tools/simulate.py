@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import glob
 import os
 import subprocess
 
@@ -39,7 +40,7 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
         try:
             compile_result = subprocess.run(
                 ["iverilog", "-g2012", "-o", out_file, tb_file, design_file],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, errors="replace", timeout=30,
             )
             if compile_result.returncode != 0:
                 return {
@@ -52,15 +53,18 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
 
             run_result = subprocess.run(
                 ["vvp", out_file],
-                capture_output=True, text=True, timeout=timeout,
+                capture_output=True, text=True, errors="replace", timeout=timeout,
+                cwd=tmpdir,
             )
-            return {
+            result = {
                 "success": run_result.returncode == 0,
                 "tool": "iverilog",
                 "stage": "run",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
             }
+            result.update(_collect_waveforms(tmpdir))
+            return result
 
         except FileNotFoundError:
             return {"success": False, "error": "'iverilog'/'vvp' not found. Install OSS CAD Suite."}
@@ -94,7 +98,7 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Analyze design
             analyze_design = subprocess.run(
                 ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, design_file],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, errors="replace", timeout=30,
             )
             if analyze_design.returncode != 0:
                 return {
@@ -108,7 +112,7 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Analyze testbench
             analyze_tb = subprocess.run(
                 ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, tb_file],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, errors="replace", timeout=30,
             )
             if analyze_tb.returncode != 0:
                 return {
@@ -122,7 +126,7 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Elaborate
             elab = subprocess.run(
                 ["ghdl", "-e", "--std=08", "--workdir=" + tmpdir, tb_entity],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, errors="replace", timeout=30,
                 cwd=tmpdir,
             )
             if elab.returncode != 0:
@@ -137,16 +141,18 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Run
             run_result = subprocess.run(
                 ["ghdl", "-r", "--std=08", "--workdir=" + tmpdir, tb_entity],
-                capture_output=True, text=True, timeout=timeout,
+                capture_output=True, text=True, errors="replace", timeout=timeout,
                 cwd=tmpdir,
             )
-            return {
+            result = {
                 "success": run_result.returncode == 0,
                 "tool": "ghdl",
                 "stage": "run",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
             }
+            result.update(_collect_waveforms(tmpdir))
+            return result
 
         except FileNotFoundError:
             return {"success": False, "error": "'ghdl' not found. Install OSS CAD Suite."}
@@ -159,3 +165,22 @@ def _find_vhdl_entity(code: str) -> str | None:
     import re
     m = re.search(r"\bentity\s+(\w+)\s+is\b", code, re.IGNORECASE)
     return m.group(1) if m else None
+
+
+_MAX_VCD_SIZE = 512 * 1024  # 512 KB cap for inline VCD
+
+
+def _collect_waveforms(tmpdir: str) -> dict:
+    """Return VCD/FST waveform data if produced by the simulation."""
+    extras: dict = {}
+    vcd_files = glob.glob(os.path.join(tmpdir, "*.vcd"))
+    if vcd_files:
+        vcd_path = vcd_files[0]
+        size = os.path.getsize(vcd_path)
+        if size <= _MAX_VCD_SIZE:
+            with open(vcd_path, "r", encoding="utf-8", errors="replace") as f:
+                extras["vcd"] = f.read()
+        else:
+            extras["vcd_truncated"] = True
+            extras["vcd_size_kb"] = round(size / 1024, 1)
+    return extras

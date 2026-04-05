@@ -92,7 +92,7 @@ def lint_hdl(
             cmd = ["iverilog", "-tnull", tmpfile]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=30)
         except FileNotFoundError:
             if language == "vhdl":
                 tool = "ghdl"
@@ -165,7 +165,7 @@ def lint_project(
             cmd += written
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
         except FileNotFoundError:
             if language == "vhdl":
                 tool = "ghdl"

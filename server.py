@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import mcp.types as types
+
+logger = logging.getLogger("fpgaZeroMCP")
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
@@ -17,6 +20,7 @@ from tools.pnr import place_and_route
 from tools.simulate import simulate
 from tools.synthesize import synthesize
 from tools.build_manager import BuildManager
+from tools.healthcheck import check_tools
 
 app = Server("fpgaZeroMCP")
 registry = CoreRegistry()
@@ -526,6 +530,44 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["build_id"],
             },
         ),
+        types.Tool(
+            name="check_tools",
+            description=(
+                "Check which EDA tools are installed and reachable. "
+                "Returns tool name, path, and version for each detected binary."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="reload_registry",
+            description=(
+                "Re-scan all core directories and rebuild the IP core cache. "
+                "Call after adding cores to disk or editing config.json."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="cleanup_build_logs",
+            description=(
+                "Delete old build logs to reclaim disk space. "
+                "Removes logs older than max_age_days, then trims oldest until under max_total_mb."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "max_age_days": {
+                        "type": "integer",
+                        "default": 7,
+                        "description": "Delete logs older than this many days",
+                    },
+                    "max_total_mb": {
+                        "type": "integer",
+                        "default": 500,
+                        "description": "Target max total log size in MB",
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -543,6 +585,7 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     code=arguments["code"],
                     language=arguments.get("language", "verilog"),
                     top_module=arguments.get("top_module"),
+                    linter=arguments.get("linter", "iverilog"),
                 )
             case "lint_project":
                 result = await asyncio.to_thread(
@@ -551,6 +594,7 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     language=arguments.get("language", "verilog"),
                     top_module=arguments.get("top_module"),
                     timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
+                    linter=arguments.get("linter", "iverilog"),
                 )
             case "synthesize":
                 result = await asyncio.to_thread(
@@ -670,6 +714,15 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                 result = builds.list_builds()
             case "cancel_build":
                 result = builds.cancel(build_id=arguments["build_id"])
+            case "check_tools":
+                result = await asyncio.to_thread(check_tools)
+            case "reload_registry":
+                result = registry.reload()
+            case "cleanup_build_logs":
+                result = BuildManager.cleanup_logs(
+                    max_age_days=arguments.get("max_age_days", 7),
+                    max_total_mb=arguments.get("max_total_mb", 500),
+                )
             case _:
                 result = {"error": f"Unknown tool: '{name}'"}
 
@@ -681,11 +734,13 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
         )
 
     except KeyError as exc:
+        logger.warning("Tool '%s' missing required argument: %s", name, exc)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=json.dumps({"error": f"Missing required argument: {exc}"}))],
             isError=True,
         )
     except Exception as exc:
+        logger.exception("Unhandled error in tool '%s'", name)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=json.dumps({"error": str(exc)}))],
             isError=True,

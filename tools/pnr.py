@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import base64
 import os
 import re
 import subprocess
@@ -106,7 +107,7 @@ def place_and_route(
         try:
             synth = subprocess.run(
                 ["yosys", "-s", ys_script],
-                capture_output=True, text=True, timeout=synth_timeout,
+                capture_output=True, text=True, errors="replace", timeout=synth_timeout,
             )
         except FileNotFoundError:
             return {"success": False, "error": "'yosys' not found. Install OSS CAD Suite."}
@@ -138,10 +139,21 @@ def place_and_route(
             netlist_json, out_file, cst_file if constraints else None,
         )
 
-        pnr_timeout = max(int(deadline - _time.monotonic()), 1)
+        pnr_timeout = int(deadline - _time.monotonic())
+        if pnr_timeout < 10:
+            return {
+                "success": False,
+                "stage": "place_and_route",
+                "error": (
+                    f"Synthesis used most of the {timeout} s budget; "
+                    f"only {max(pnr_timeout, 0)} s remain for PnR. "
+                    "Increase timeout or simplify the design."
+                ),
+                "synth_log": synth.stdout,
+            }
         try:
             pnr = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=pnr_timeout,
+                cmd, capture_output=True, text=True, errors="replace", timeout=pnr_timeout,
             )
         except FileNotFoundError:
             return {"success": False, "error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite."}
@@ -150,7 +162,7 @@ def place_and_route(
 
         combined_output = pnr.stdout + pnr.stderr
 
-        return {
+        result = {
             "success":     pnr.returncode == 0,
             "stage":       "place_and_route",
             "target":      target,
@@ -163,6 +175,14 @@ def place_and_route(
             "pnr_stdout":  pnr.stdout,
             "pnr_stderr":  pnr.stderr,
         }
+
+        # Include bitstream/config output if PnR succeeded
+        if pnr.returncode == 0 and os.path.exists(out_file):
+            with open(out_file, "rb") as f:
+                result["bitstream_b64"] = base64.b64encode(f.read()).decode("ascii")
+            result["bitstream_ext"] = OUTPUT_EXT[target]
+
+        return result
 
 
 def _build_cmd(

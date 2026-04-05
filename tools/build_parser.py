@@ -249,10 +249,11 @@ def _pf(s: str) -> float:
 
 
 def _make_util(used: float, total: float) -> dict:
+    pct = round(used / max(total, 0.001) * 100, 1)
     return {
         "used": used,
         "total": total,
-        "pct": round(used / max(total, 0.001) * 100, 1),
+        "pct": min(pct, 100.0) if total > 0 else 0.0,
     }
 
 

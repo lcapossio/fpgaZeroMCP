@@ -27,7 +27,7 @@ def _run_litex(board: str, args: list[str] | None, timeout: int) -> dict:
     cmd = _build_litex_cmd(board, args)
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
+            cmd, capture_output=True, text=True, errors="replace", timeout=timeout
         )
         return {
             "success": result.returncode == 0,
