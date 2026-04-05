@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from registry.resolver import CoreRegistry
-from tools.synthesize import synthesize, validate_top_module
+from tools.synthesize import synthesize, validate_top_module, _resolve_sources, _yosys_read_cmds
 from tools.pnr import place_and_route
 from tools.simulate import simulate
 from tools.lint import lint_hdl, lint_project
@@ -81,6 +81,146 @@ class TestSynthesizeErrors:
         # If it is installed, we at least verify it ran.
         if "error" in result and "not found" in result["error"]:
             assert result["success"] is False
+
+
+# ---------------------------------------------------------------------------
+# _resolve_sources validation
+# ---------------------------------------------------------------------------
+
+class TestResolveSources:
+    def test_no_input_returns_error(self) -> None:
+        paths, err = _resolve_sources()
+        assert err is not None
+        assert "Provide one of" in err
+
+    def test_multiple_inputs_returns_error(self) -> None:
+        paths, err = _resolve_sources(code="module m; endmodule", files={"a.v": "x"})
+        assert err is not None
+        assert "only one" in err.lower()
+
+    def test_code_writes_file(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(code="module m; endmodule", tmpdir=tmpdir)
+        assert err is None
+        assert len(paths) == 1
+        assert paths[0].endswith(".v")
+
+    def test_code_sv_extension(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(code="module m; endmodule", language="systemverilog", tmpdir=tmpdir)
+        assert err is None
+        assert paths[0].endswith(".sv")
+
+    def test_code_vhdl_extension(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(code="entity e is end;", language="vhdl", tmpdir=tmpdir)
+        assert err is None
+        assert paths[0].endswith(".vhd")
+
+    def test_files_dict(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(files={"top.v": "module top; endmodule", "sub.v": "module sub; endmodule"}, tmpdir=tmpdir)
+        assert err is None
+        assert len(paths) == 2
+
+    def test_project_dir_nonexistent(self) -> None:
+        paths, err = _resolve_sources(project_dir="/nonexistent/path/xyz")
+        assert err is not None
+        assert "does not exist" in err or "outside allowed" in err.lower()
+
+    def test_project_dir_no_files(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(project_dir=tmpdir, language="verilog")
+        assert err is not None
+        assert "No verilog files" in err
+
+    def test_project_dir_finds_files(self) -> None:
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "top.v").write_text("module top; endmodule", encoding="utf-8")
+        (tmpdir / "sub.v").write_text("module sub; endmodule", encoding="utf-8")
+        paths, err = _resolve_sources(project_dir=str(tmpdir), language="verilog")
+        assert err is None
+        assert len(paths) == 2
+
+    def test_project_dir_outside_allowed_roots_rejected(self) -> None:
+        # A path that's outside cwd, home, and any FPGAZERO_ALLOWED_DIRS
+        paths, err = _resolve_sources(project_dir="/nonexistent/outside/root", language="verilog")
+        assert err is not None
+        assert "outside allowed" in err.lower() or "does not exist" in err.lower()
+
+    def test_files_dict_traversal_rejected(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(files={"../../etc/crontab.v": "x"}, tmpdir=tmpdir)
+        assert err is not None
+        assert "Unsafe" in err or "traversal" in err.lower()
+
+    def test_files_dict_absolute_path_rejected(self) -> None:
+        tmpdir = str(_mk_tmp_dir())
+        paths, err = _resolve_sources(files={"/etc/passwd.v": "x"}, tmpdir=tmpdir)
+        assert err is not None
+        assert "Unsafe" in err
+
+    def test_sv_does_not_glob_v_files(self) -> None:
+        """SystemVerilog mode should only glob .sv files, not .v."""
+        tmpdir = _mk_tmp_dir()
+        (tmpdir / "design.sv").write_text("module top; endmodule", encoding="utf-8")
+        (tmpdir / "legacy.v").write_text("module old; endmodule", encoding="utf-8")
+        paths, err = _resolve_sources(project_dir=str(tmpdir), language="systemverilog")
+        assert err is None
+        assert len(paths) == 1
+        assert paths[0].endswith(".sv")
+
+
+class TestYosysReadCmds:
+    def test_verilog_single_file(self) -> None:
+        result = _yosys_read_cmds(["/tmp/design.v"], "verilog")
+        assert result.strip() == "read_verilog /tmp/design.v"
+
+    def test_verilog_multi_file(self) -> None:
+        result = _yosys_read_cmds(["/tmp/a.v", "/tmp/b.v"], "verilog")
+        assert "read_verilog /tmp/a.v" in result
+        assert "read_verilog /tmp/b.v" in result
+
+    def test_systemverilog(self) -> None:
+        result = _yosys_read_cmds(["/tmp/design.sv"], "systemverilog")
+        assert result.strip() == "read_verilog -sv /tmp/design.sv"
+
+    def test_vhdl_single_file_with_top(self) -> None:
+        result = _yosys_read_cmds(["/tmp/design.vhd"], "vhdl", top_module="top_entity")
+        assert result.strip() == "ghdl --std=08 /tmp/design.vhd -e top_entity"
+
+    def test_vhdl_multi_file_single_invocation(self) -> None:
+        result = _yosys_read_cmds(
+            ["/tmp/pkg.vhd", "/tmp/design.vhd", "/tmp/top.vhd"],
+            "vhdl",
+            top_module="my_top",
+        )
+        # Must be a single ghdl line with all files, not one per file
+        lines = [l for l in result.strip().splitlines() if l.strip()]
+        assert len(lines) == 1
+        assert lines[0] == "ghdl --std=08 /tmp/pkg.vhd /tmp/design.vhd /tmp/top.vhd -e my_top"
+
+    def test_vhdl_without_top(self) -> None:
+        result = _yosys_read_cmds(["/tmp/design.vhd"], "vhdl")
+        assert "-e" not in result
+        assert result.strip() == "ghdl --std=08 /tmp/design.vhd"
+
+    def test_windows_backslashes_converted(self) -> None:
+        result = _yosys_read_cmds(["C:\\tmp\\design.v"], "verilog")
+        assert "\\" not in result
+        assert "C:/tmp/design.v" in result
+
+
+class TestSynthesizeMultiFile:
+    def test_missing_top_module(self) -> None:
+        result = synthesize(code="module m; endmodule")
+        assert result["success"] is False
+        assert "top_module" in result["error"].lower()
+
+    def test_no_source_provided(self) -> None:
+        result = synthesize(top_module="top")
+        assert result["success"] is False
+        assert "Provide one of" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -462,10 +602,21 @@ class TestLintProject:
 # ---------------------------------------------------------------------------
 
 class TestBuildManager:
+    def _allowed_cmd(self) -> list[str]:
+        """Return a fast, allowed command for testing. Prefer iverilog if installed."""
+        if shutil.which("iverilog"):
+            return ["iverilog", "-V"]
+        if shutil.which("ghdl"):
+            return ["ghdl", "--version"]
+        if shutil.which("verilator"):
+            return ["verilator", "--version"]
+        pytest.skip("No allowed EDA tool installed for BuildManager tests")
+        return []  # unreachable
+
     def test_start_and_status(self) -> None:
         mgr = BuildManager()
-        # Use a fast command that exists on all platforms
-        result = mgr.start(cmd=["python", "-c", "print('hello')"], label="test")
+        cmd = self._allowed_cmd()
+        result = mgr.start(cmd=cmd, label="test")
         assert result["success"] is True
         bid = result["build_id"]
 
@@ -480,11 +631,11 @@ class TestBuildManager:
         s = mgr.status(bid)
         assert s["status"] == "success"
         assert s["returncode"] == 0
-        assert "hello" in s["tail"]
 
     def test_list_builds(self) -> None:
         mgr = BuildManager()
-        mgr.start(cmd=["python", "-c", "pass"], label="list-test")
+        cmd = self._allowed_cmd()
+        mgr.start(cmd=cmd, label="list-test")
         import time
         time.sleep(0.5)
         builds = mgr.list_builds()
@@ -498,7 +649,8 @@ class TestBuildManager:
 
     def test_cancel_not_running(self) -> None:
         mgr = BuildManager()
-        result = mgr.start(cmd=["python", "-c", "pass"], label="done")
+        cmd = self._allowed_cmd()
+        result = mgr.start(cmd=cmd, label="done")
         import time
         time.sleep(0.5)
         cancel = mgr.cancel(result["build_id"])
@@ -508,11 +660,30 @@ class TestBuildManager:
         mgr = BuildManager()
         result = mgr.start(cmd=["nonexistent_tool_xyz"])
         assert result["success"] is False
-        assert "not found" in result["error"].lower() or "Command not found" in result["error"]
+        assert "not in the allowed list" in result["error"]
+
+    def test_command_allowlist_rejects_arbitrary(self) -> None:
+        mgr = BuildManager()
+        result = mgr.start(cmd=["rm", "-rf", "/"])
+        assert result["success"] is False
+        assert "not in the allowed list" in result["error"]
+
+    def test_command_allowlist_python_m_restricted(self) -> None:
+        mgr = BuildManager()
+        result = mgr.start(cmd=["python", "-m", "http.server"])
+        assert result["success"] is False
+        assert "not allowed" in result["error"]
+
+    def test_python_c_rejected(self) -> None:
+        mgr = BuildManager()
+        result = mgr.start(cmd=["python", "-c", "print('hello')"])
+        assert result["success"] is False
+        assert "must use '-m <module>'" in result["error"]
 
     def test_clear_finished(self) -> None:
         mgr = BuildManager()
-        mgr.start(cmd=["python", "-c", "pass"], label="clear-test")
+        cmd = self._allowed_cmd()
+        mgr.start(cmd=cmd, label="clear-test")
         import time
         time.sleep(0.5)
         result = mgr.clear_finished()

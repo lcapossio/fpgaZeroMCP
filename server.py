@@ -114,15 +114,32 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="synthesize",
             description=(
-                "Synthesize Verilog HDL using Yosys or run LiteX backend. "
+                "Synthesize HDL (Verilog, SystemVerilog, or VHDL) using Yosys or run LiteX backend. "
+                "Provide source as: code (single string), files (dict of filename→source), "
+                "or project_dir (path to HDL files on disk). "
                 "Returns resource statistics and the list of inferred modules. "
                 "Supported targets: generic, ice40, ecp5, gowin, xilinx, intel."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":       {"type": "string", "description": "Verilog source code"},
+                    "code":       {"type": "string", "description": "HDL source code (single-file mode)"},
+                    "files": {
+                        "type": "object",
+                        "description": "Multi-file mode: mapping of filename to source code",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "project_dir": {
+                        "type": "string",
+                        "description": "Disk mode: path to directory containing HDL source files",
+                    },
                     "top_module": {"type": "string", "description": "Name of the top-level module"},
+                    "language": {
+                        "type": "string",
+                        "enum": ["verilog", "systemverilog", "vhdl"],
+                        "default": "verilog",
+                        "description": "HDL language variant",
+                    },
                     "target": {
                         "type": "string",
                         "enum": ["generic", "ice40", "ecp5", "nexus", "gowin", "xilinx", "intel"],
@@ -150,15 +167,17 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": "Timeout in seconds",
                     },
                 },
-                "required": ["code", "top_module"],
+                "required": ["top_module"],
             },
         ),
         types.Tool(
             name="place_and_route",
             description=(
-                "Synthesize Verilog with Yosys then place-and-route with nextpnr in one step. "
-                "If backend=litex, runs LiteX build and ignores Verilog inputs. "
-                "Returns max frequency, critical path, resource utilization, and full logs. "
+                "Synthesize HDL with Yosys then place-and-route with nextpnr in one step. "
+                "Provide source as: code (single string), files (dict of filename→source), "
+                "or project_dir (path to HDL files on disk). "
+                "If backend=litex, runs LiteX build and ignores HDL inputs. "
+                "Returns max frequency, critical path, resource utilization, bitstream, and full logs. "
                 "Supported targets: ice40, ecp5, nexus, gowin.\n"
                 "Common device/package values:\n"
                 "  ice40: device=hx1k|hx8k|up5k|lp1k  package=tq144|qn84|sg48|cm81\n"
@@ -169,8 +188,23 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":        {"type": "string", "description": "Verilog source code"},
+                    "code":        {"type": "string", "description": "HDL source code (single-file mode)"},
+                    "files": {
+                        "type": "object",
+                        "description": "Multi-file mode: mapping of filename to source code",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "project_dir": {
+                        "type": "string",
+                        "description": "Disk mode: path to directory containing HDL source files",
+                    },
                     "top_module":  {"type": "string", "description": "Top-level module name"},
+                    "language": {
+                        "type": "string",
+                        "enum": ["verilog", "systemverilog", "vhdl"],
+                        "default": "verilog",
+                        "description": "HDL language variant",
+                    },
                     "target":      {
                         "type": "string",
                         "enum": ["ice40", "ecp5", "nexus", "gowin"],
@@ -196,7 +230,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": "Extra LiteX CLI args (backend=litex)",
                     },
                 },
-                "required": ["code", "top_module", "target", "device"],
+                "required": ["top_module", "target", "device"],
             },
         ),
         types.Tool(
@@ -599,9 +633,12 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
             case "synthesize":
                 result = await asyncio.to_thread(
                     synthesize,
-                    code=arguments["code"],
+                    code=arguments.get("code", ""),
                     top_module=arguments["top_module"],
                     target=arguments.get("target", "generic"),
+                    language=arguments.get("language", "verilog"),
+                    files=arguments.get("files"),
+                    project_dir=arguments.get("project_dir"),
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
@@ -610,12 +647,15 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
             case "place_and_route":
                 result = await asyncio.to_thread(
                     place_and_route,
-                    code=arguments["code"],
+                    code=arguments.get("code", ""),
                     top_module=arguments["top_module"],
                     target=arguments["target"],
                     device=arguments["device"],
                     package=arguments.get("package", ""),
                     constraints=arguments.get("constraints", ""),
+                    language=arguments.get("language", "verilog"),
+                    files=arguments.get("files"),
+                    project_dir=arguments.get("project_dir"),
                     timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),

@@ -94,6 +94,44 @@ class BuildRecord:
         return result
 
 
+# Allowed command prefixes for start_build (security allowlist).
+# Only EDA-related tools are permitted to prevent arbitrary command execution.
+_ALLOWED_COMMANDS = {
+    # Synthesis / PnR
+    "yosys", "nextpnr-ice40", "nextpnr-ecp5", "nextpnr-nexus", "nextpnr-gowin",
+    # Simulation / lint
+    "ghdl", "iverilog", "vvp", "verilator", "verible-verilog-lint",
+    # Formal verification
+    "sby",
+    # Programming
+    "iceprog", "openFPGALoader", "ecpprog",
+}
+
+# Python is handled separately via prefix match to avoid version pinning
+_PYTHON_PREFIX = "python"
+
+
+def _validate_build_cmd(cmd: list[str]) -> str | None:
+    """Return an error string if cmd is not in the allowlist, else None."""
+    if not cmd:
+        return "Empty command."
+    binary = os.path.basename(cmd[0]).removesuffix(".exe").removesuffix(".EXE")
+    is_python = binary == _PYTHON_PREFIX or binary.startswith(_PYTHON_PREFIX + "3")
+    if binary not in _ALLOWED_COMMANDS and not is_python:
+        return (
+            f"Command '{cmd[0]}' is not in the allowed list. "
+            f"Permitted: {sorted(_ALLOWED_COMMANDS)}"
+        )
+    # Python: restricted to -m with litex modules only
+    if is_python:
+        if len(cmd) < 3 or cmd[1] != "-m":
+            return "Python commands must use '-m <module>' invocation."
+        module = cmd[2]
+        if not (module.startswith("litex_boards.") or module.startswith("litex.")):
+            return f"Python module '{module}' is not allowed. Only litex_boards.* and litex.* are permitted."
+    return None
+
+
 class BuildManager:
     """Manages background builds with log capture and status queries."""
 
@@ -109,6 +147,10 @@ class BuildManager:
         env: dict[str, str] | None = None,
     ) -> dict:
         """Start a build subprocess in the background. Returns build info."""
+        err = _validate_build_cmd(cmd)
+        if err:
+            return {"success": False, "error": err}
+
         build_id = uuid4().hex[:8]
         log_dir = Path("no_commit") / "builds"
         log_dir.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,7 @@ import os
 import re
 import subprocess
 
-from tools.synthesize import SYNTH_CMDS, validate_top_module
+from tools.synthesize import SYNTH_CMDS, validate_top_module, _resolve_sources, _yosys_read_cmds
 from tools.workspace import temporary_workspace
 
 # nextpnr binary per target
@@ -36,22 +36,32 @@ OUTPUT_EXT = {
 
 
 def place_and_route(
-    code: str,
-    top_module: str,
-    target: str,
-    device: str,
+    code: str = "",
+    top_module: str = "",
+    target: str = "",
+    device: str = "",
     package: str = "",
     constraints: str = "",
+    language: str = "verilog",
+    files: dict[str, str] | None = None,
+    project_dir: str | None = None,
     timeout: int = 300,
     backend: str = "yosys",
     litex_board: str | None = None,
     litex_args: list[str] | None = None,
 ) -> dict:
-    """Synthesize Verilog with Yosys then place-and-route with nextpnr.
+    """Synthesize HDL with Yosys then place-and-route with nextpnr.
+
+    Source input (provide exactly one):
+      code:        single HDL source as a string
+      files:       dict of filename → source code for multi-file designs
+      project_dir: path to a directory containing HDL files on disk
+
+    language: "verilog" (default), "systemverilog", or "vhdl".
 
     Common device/package values:
       ice40:  device=hx1k|hx8k|up5k|lp1k  package=tq144|qn84|sg48|cm81
-      ecp5:   device=25k|45k|85k           package=CABGA256|CABGA381|CABGA381
+      ecp5:   device=25k|45k|85k           package=CABGA256|CABGA381
       nexus:  device=LIFCL-40-9BG400C      (package embedded in device string)
       gowin:  device=GW1N-UV4LQ144C6/I5   (package embedded in device string)
 
@@ -66,34 +76,39 @@ def place_and_route(
         result["note"] = "LiteX backend ignores code/top_module/target/device and runs board build."
         return result
 
-    if target not in NEXTPNR_BIN:
+    if not target or target not in NEXTPNR_BIN:
         supported = list(NEXTPNR_BIN.keys())
         return {"success": False, "error": f"Unsupported PnR target '{target}'. Supported: {supported}"}
 
     synth_cmd = SYNTH_CMDS.get(target)
     if not synth_cmd:
         return {"success": False, "error": f"No Yosys synth command for target '{target}'"}
+    if not top_module:
+        return {"success": False, "error": "top_module is required."}
     top_err = validate_top_module(top_module)
     if top_err:
         return {"success": False, "error": top_err}
 
     with temporary_workspace("pnr_") as tmpdir:
-        src_file     = os.path.join(tmpdir, "design.v")
-        ys_script    = os.path.join(tmpdir, "synth.ys")
+        src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
+        if err:
+            return {"success": False, "error": err}
+
         netlist_json = os.path.join(tmpdir, "netlist.json")
+        ys_script    = os.path.join(tmpdir, "synth.ys")
         out_file     = os.path.join(tmpdir, f"out{OUTPUT_EXT[target]}")
         cst_file     = os.path.join(tmpdir, f"constraints{CONSTRAINTS_EXT[target]}")
 
-        with open(src_file, "w", encoding="utf-8") as f:
-            f.write(code)
-
-        # Forward slashes for Yosys on Windows
-        src_yosys     = src_file.replace("\\", "/")
+        # _yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
+        read_cmds = _yosys_read_cmds(src_paths, language, top_module)
         netlist_yosys = netlist_json.replace("\\", "/")
 
+        # ghdl-yosys-plugin lowercases VHDL entity names during import
+        yosys_top = top_module.lower() if language == "vhdl" else top_module
+
         script = (
-            f"read_verilog {src_yosys}\n"
-            f"{synth_cmd} -top {top_module} -json {netlist_yosys}\n"
+            f"{read_cmds}"
+            f"{synth_cmd} -top {yosys_top} -json {netlist_yosys}\n"
         )
         with open(ys_script, "w", encoding="utf-8") as f:
             f.write(script)
@@ -168,6 +183,7 @@ def place_and_route(
             "target":      target,
             "device":      device,
             "package":     package,
+            "language":    language,
             "top_module":  top_module,
             "timing":      _parse_timing(combined_output),
             "utilization": _parse_utilization(combined_output, target),
