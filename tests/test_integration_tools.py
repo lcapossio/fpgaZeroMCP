@@ -42,7 +42,8 @@ def _have_verilator() -> bool:
         try:
             r = subprocess.run(
                 ["wsl", "which", "verilator"],
-                capture_output=True, timeout=10,
+                capture_output=True,
+                timeout=10,
             )
             return r.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -94,9 +95,7 @@ def test_lint_project_cross_module() -> None:
         pytest.skip("iverilog not installed")
     sub_mod = "module sub(input wire a, output wire y); assign y = ~a; endmodule\n"
     top_mod = (
-        "module top(input wire a, output wire y);\n"
-        "  sub u0(.a(a), .y(y));\n"
-        "endmodule\n"
+        "module top(input wire a, output wire y);\n  sub u0(.a(a), .y(y));\nendmodule\n"
     )
     result = lint_project({"sub.v": sub_mod, "top.v": top_mod}, top_module="top")
     assert result.get("success") is True
@@ -109,9 +108,7 @@ def test_lint_project_missing_module() -> None:
         pytest.skip("iverilog not installed")
     # top references sub which is not provided — should fail
     top_mod = (
-        "module top(input wire a, output wire y);\n"
-        "  sub u0(.a(a), .y(y));\n"
-        "endmodule\n"
+        "module top(input wire a, output wire y);\n  sub u0(.a(a), .y(y));\nendmodule\n"
     )
     result = lint_project({"top.v": top_mod}, top_module="top")
     assert result.get("success") is False
@@ -121,7 +118,9 @@ def test_lint_project_missing_module() -> None:
 def test_diagnostics_verilator_or_verible() -> None:
     if not (_have("verilator") or _have("verible-verilog-lint")):
         pytest.skip("verilator/verible not installed")
-    result = get_diagnostics("module top; wire x = 1'b1; endmodule\n", language="verilog")
+    result = get_diagnostics(
+        "module top; wire x = 1'b1; endmodule\n", language="verilog"
+    )
     assert "diagnostics" in result
 
 
@@ -144,7 +143,7 @@ def test_simulate_iverilog_vvp() -> None:
         "module tb;\n"
         "  reg a; wire y;\n"
         "  top dut(.a(a), .y(y));\n"
-        "  initial begin a=0; #1; $display(\"y=%0d\", y); a=1; #1; $display(\"y=%0d\", y); $finish; end\n"
+        '  initial begin a=0; #1; $display("y=%0d", y); a=1; #1; $display("y=%0d", y); $finish; end\n'
         "endmodule\n"
     )
     result = simulate(design, tb, timeout=10)
@@ -226,7 +225,7 @@ def test_simulate_vhdl_ghdl() -> None:
         "    assert y = '1' report \"FAIL: y should be 1\" severity failure;\n"
         "    a <= '1'; wait for 1 ns;\n"
         "    assert y = '0' report \"FAIL: y should be 0\" severity failure;\n"
-        "    report \"PASS\";\n"
+        '    report "PASS";\n'
         "    wait;\n"
         "  end process;\n"
         "end architecture;\n"

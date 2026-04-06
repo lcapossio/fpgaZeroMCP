@@ -5,6 +5,7 @@
 Standalone wrapper exposing fpgaZeroMCP's Verible LSP tools.
 Provides a stdio-based interface compatible with Claude Code MCP.
 """
+
 import asyncio
 import json
 import sys
@@ -36,22 +37,18 @@ async def handle_stdin():
             if method == "get_diagnostics":
                 result = get_diagnostics(
                     code=params.get("code", ""),
-                    language=params.get("language", "verilog")
+                    language=params.get("language", "verilog"),
                 )
             elif method == "format_hdl":
                 result = format_hdl(
                     code=params.get("code", ""),
-                    language=params.get("language", "verilog")
+                    language=params.get("language", "verilog"),
                 )
             else:
                 result = {"error": f"Unknown method: {method}"}
 
             # Send response
-            response = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": result
-            }
+            response = {"jsonrpc": "2.0", "id": request_id, "result": result}
             print(json.dumps(response))
             sys.stdout.flush()
 
@@ -60,7 +57,7 @@ async def handle_stdin():
         except Exception as e:
             error_response = {
                 "jsonrpc": "2.0",
-                "error": {"code": -1, "message": str(e)}
+                "error": {"code": -1, "message": str(e)},
             }
             print(json.dumps(error_response))
             sys.stdout.flush()

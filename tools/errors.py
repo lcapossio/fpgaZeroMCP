@@ -5,6 +5,7 @@
 Every tool error dict should include an 'error_code' field so AI clients
 can make retry/fallback decisions without parsing English messages.
 """
+
 from __future__ import annotations
 
 # Tool availability

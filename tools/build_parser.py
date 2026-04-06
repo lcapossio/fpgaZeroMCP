@@ -20,6 +20,7 @@ Scans build logs in a single pass to extract:
   - Accurate warning/error counts (tool-specific patterns)
   - Health assessment with actionable concerns
 """
+
 from __future__ import annotations
 
 import re
@@ -31,11 +32,16 @@ from dataclasses import dataclass, field
 # ---------------------------------------------------------------------------
 
 _TOOL_SIGNATURES: list[tuple[str, re.Pattern]] = [
-    ("yosys",   re.compile(r"Yosys \d|yosys>|Executing \w+ pass", re.I)),
+    ("yosys", re.compile(r"Yosys \d|yosys>|Executing \w+ pass", re.I)),
     ("nextpnr", re.compile(r"nextpnr|Info: (?:Pack|Plac|Rout|Device)", re.I)),
-    ("vivado",  re.compile(r"Vivado |synth_design|place_design|route_design|write_bitstream", re.I)),
+    (
+        "vivado",
+        re.compile(
+            r"Vivado |synth_design|place_design|route_design|write_bitstream", re.I
+        ),
+    ),
     ("quartus", re.compile(r"quartus_|Quartus |Analysis & Synthesis|Fitter \(", re.I)),
-    ("ghdl",    re.compile(r"ghdl|GHDL \d", re.I)),
+    ("ghdl", re.compile(r"ghdl|GHDL \d", re.I)),
 ]
 
 
@@ -45,88 +51,132 @@ _TOOL_SIGNATURES: list[tuple[str, re.Pattern]] = [
 
 _PHASES: dict[str, list[tuple[str, re.Pattern]]] = {
     "yosys": [
-        ("read_design",  re.compile(r"(?:Parsing|Reading) (?:Verilog|SystemVerilog|VHDL)", re.I)),
-        ("elaboration",  re.compile(r"Executing (?:HIERARCHY|PROC)|Generating RTLIL", re.I)),
-        ("optimization", re.compile(r"Executing (?:OPT|TECHMAP|ABC|FLATTEN|MEMORY)", re.I)),
-        ("synthesis",    re.compile(r"Executing (?:SYNTH_\w+)", re.I)),
-        ("mapping",      re.compile(r"Executing (?:ABC9?|MAP_\w+|DFFLEGALIZE)", re.I)),
+        (
+            "read_design",
+            re.compile(r"(?:Parsing|Reading) (?:Verilog|SystemVerilog|VHDL)", re.I),
+        ),
+        (
+            "elaboration",
+            re.compile(r"Executing (?:HIERARCHY|PROC)|Generating RTLIL", re.I),
+        ),
+        (
+            "optimization",
+            re.compile(r"Executing (?:OPT|TECHMAP|ABC|FLATTEN|MEMORY)", re.I),
+        ),
+        ("synthesis", re.compile(r"Executing (?:SYNTH_\w+)", re.I)),
+        ("mapping", re.compile(r"Executing (?:ABC9?|MAP_\w+|DFFLEGALIZE)", re.I)),
         ("write_output", re.compile(r"Executing (?:WRITE_|write_)", re.I)),
     ],
     "nextpnr": [
-        ("packing",  re.compile(r"Packing\.\.\.|Info: Packing")),
-        ("placing",  re.compile(r"Placer|SA placement|HeAP Placer|Info: Plac")),
-        ("routing",  re.compile(r"Router|Routing\.\.\.|Info: Rout")),
-        ("timing",   re.compile(r"Max frequency|Info: Max frequency")),
+        ("packing", re.compile(r"Packing\.\.\.|Info: Packing")),
+        ("placing", re.compile(r"Placer|SA placement|HeAP Placer|Info: Plac")),
+        ("routing", re.compile(r"Router|Routing\.\.\.|Info: Rout")),
+        ("timing", re.compile(r"Max frequency|Info: Max frequency")),
         ("bitstream", re.compile(r"Writing bitstream|icepack|ecppack")),
     ],
     "vivado": [
-        ("synth",    re.compile(r"synth_design|Starting Synthesis|Phase \d+.*Synthesis|launch_runs.*synth", re.I)),
+        (
+            "synth",
+            re.compile(
+                r"synth_design|Starting Synthesis|Phase \d+.*Synthesis|launch_runs.*synth",
+                re.I,
+            ),
+        ),
         ("phys_opt", re.compile(r"phys_opt_design|Physical Optimization", re.I)),
-        ("opt",      re.compile(r"opt_design|Phase \d+.*Optimization", re.I)),
-        ("place",    re.compile(r"place_design|Starting Placer|Phase \d+.*Placement|Placer Phase", re.I)),
-        ("route",    re.compile(r"route_design|Starting Router|Phase \d+.*Routing|Router Phase", re.I)),
-        ("timing",   re.compile(r"report_timing_summary|Timing Summary|Design Timing Summary", re.I)),
-        ("drc",      re.compile(r"report_drc|DRC Results", re.I)),
-        ("write",    re.compile(r"write_bitstream|\.bit generation|Bitstream Generation", re.I)),
+        ("opt", re.compile(r"opt_design|Phase \d+.*Optimization", re.I)),
+        (
+            "place",
+            re.compile(
+                r"place_design|Starting Placer|Phase \d+.*Placement|Placer Phase", re.I
+            ),
+        ),
+        (
+            "route",
+            re.compile(
+                r"route_design|Starting Router|Phase \d+.*Routing|Router Phase", re.I
+            ),
+        ),
+        (
+            "timing",
+            re.compile(
+                r"report_timing_summary|Timing Summary|Design Timing Summary", re.I
+            ),
+        ),
+        ("drc", re.compile(r"report_drc|DRC Results", re.I)),
+        (
+            "write",
+            re.compile(r"write_bitstream|\.bit generation|Bitstream Generation", re.I),
+        ),
     ],
     "quartus": [
-        ("analysis", re.compile(r"Analysis & Elaboration|quartus_map.*--analysis", re.I)),
-        ("synth",    re.compile(r"quartus_map|Quartus.*Synthesis|Analysis & Synthesis", re.I)),
-        ("fit",      re.compile(r"quartus_fit|Fitter \(|Starting Fitter", re.I)),
-        ("place",    re.compile(r"Fitter.*Placement|quartus_fit.*placement", re.I)),
-        ("route",    re.compile(r"Fitter.*Routing|quartus_fit.*routing", re.I)),
-        ("sta",      re.compile(r"quartus_sta|TimeQuest|Timing Analyzer|Slow.*Model", re.I)),
-        ("asm",      re.compile(r"quartus_asm|Assembler|Generating.*\.sof|\.pof generation", re.I)),
-        ("eda",      re.compile(r"quartus_eda|EDA Netlist Writer", re.I)),
-        ("pgm",      re.compile(r"quartus_pgm|Programmer", re.I)),
+        (
+            "analysis",
+            re.compile(r"Analysis & Elaboration|quartus_map.*--analysis", re.I),
+        ),
+        (
+            "synth",
+            re.compile(r"quartus_map|Quartus.*Synthesis|Analysis & Synthesis", re.I),
+        ),
+        ("fit", re.compile(r"quartus_fit|Fitter \(|Starting Fitter", re.I)),
+        ("place", re.compile(r"Fitter.*Placement|quartus_fit.*placement", re.I)),
+        ("route", re.compile(r"Fitter.*Routing|quartus_fit.*routing", re.I)),
+        ("sta", re.compile(r"quartus_sta|TimeQuest|Timing Analyzer|Slow.*Model", re.I)),
+        (
+            "asm",
+            re.compile(
+                r"quartus_asm|Assembler|Generating.*\.sof|\.pof generation", re.I
+            ),
+        ),
+        ("eda", re.compile(r"quartus_eda|EDA Netlist Writer", re.I)),
+        ("pgm", re.compile(r"quartus_pgm|Programmer", re.I)),
     ],
     "ghdl": [
-        ("analyze",   re.compile(r"ghdl.*-a\b|Analyzing", re.I)),
+        ("analyze", re.compile(r"ghdl.*-a\b|Analyzing", re.I)),
         ("elaborate", re.compile(r"ghdl.*-e\b|Elaborating", re.I)),
-        ("simulate",  re.compile(r"ghdl.*-r\b|Simulating|simulation", re.I)),
+        ("simulate", re.compile(r"ghdl.*-r\b|Simulating|simulation", re.I)),
     ],
 }
 
 # Friendly labels — tool prefix added automatically
 _PHASE_LABELS: dict[str, dict[str, str]] = {
     "yosys": {
-        "read_design":  "Reading design files",
-        "elaboration":  "Elaborating hierarchy",
+        "read_design": "Reading design files",
+        "elaboration": "Elaborating hierarchy",
         "optimization": "Optimizing logic",
-        "synthesis":    "Synthesizing for target",
-        "mapping":      "Technology mapping",
+        "synthesis": "Synthesizing for target",
+        "mapping": "Technology mapping",
         "write_output": "Writing output",
     },
     "nextpnr": {
-        "packing":  "Packing primitives",
-        "placing":  "Placing cells",
-        "routing":  "Routing nets",
-        "timing":   "Timing analysis",
+        "packing": "Packing primitives",
+        "placing": "Placing cells",
+        "routing": "Routing nets",
+        "timing": "Timing analysis",
         "bitstream": "Generating bitstream",
     },
     "vivado": {
-        "synth":    "Synthesis",
-        "opt":      "Logic optimization",
+        "synth": "Synthesis",
+        "opt": "Logic optimization",
         "phys_opt": "Physical optimization",
-        "place":    "Placement",
-        "route":    "Routing",
-        "timing":   "Timing analysis",
-        "drc":      "Design rule check",
-        "write":    "Writing bitstream",
+        "place": "Placement",
+        "route": "Routing",
+        "timing": "Timing analysis",
+        "drc": "Design rule check",
+        "write": "Writing bitstream",
     },
     "quartus": {
         "analysis": "Analysis & Elaboration",
-        "synth":    "Analysis & Synthesis",
-        "fit":      "Fitter",
-        "place":    "Fitter — Placement",
-        "route":    "Fitter — Routing",
-        "sta":      "Timing Analyzer (STA)",
-        "asm":      "Assembler",
-        "eda":      "EDA Netlist Writer",
-        "pgm":      "Programmer",
+        "synth": "Analysis & Synthesis",
+        "fit": "Fitter",
+        "place": "Fitter — Placement",
+        "route": "Fitter — Routing",
+        "sta": "Timing Analyzer (STA)",
+        "asm": "Assembler",
+        "eda": "EDA Netlist Writer",
+        "pgm": "Programmer",
     },
     "ghdl": {
-        "analyze":  "Analyzing",
+        "analyze": "Analyzing",
         "elaborate": "Elaborating",
         "simulate": "Simulating",
     },
@@ -138,19 +188,19 @@ _PHASE_LABELS: dict[str, dict[str, str]] = {
 # ---------------------------------------------------------------------------
 
 _ERROR_PATTERNS: dict[str, re.Pattern] = {
-    "yosys":   re.compile(r"^ERROR:", re.M),
+    "yosys": re.compile(r"^ERROR:", re.M),
     "nextpnr": re.compile(r"^ERROR:|Error:", re.M),
-    "vivado":  re.compile(r"^ERROR:\s|CRITICAL WARNING:", re.M),
+    "vivado": re.compile(r"^ERROR:\s|CRITICAL WARNING:", re.M),
     "quartus": re.compile(r"^Error \(\d+\):", re.M),
-    "ghdl":    re.compile(r":\d+:\d+:\s*error:", re.I),
+    "ghdl": re.compile(r":\d+:\d+:\s*error:", re.I),
 }
 
 _WARNING_PATTERNS: dict[str, re.Pattern] = {
-    "yosys":   re.compile(r"^Warning:", re.M),
+    "yosys": re.compile(r"^Warning:", re.M),
     "nextpnr": re.compile(r"^Warning:|Warning:", re.M),
-    "vivado":  re.compile(r"^WARNING:\s", re.M),
+    "vivado": re.compile(r"^WARNING:\s", re.M),
     "quartus": re.compile(r"^Warning \(\d+\):", re.M),
-    "ghdl":    re.compile(r":\d+:\d+:\s*warning:", re.I),
+    "ghdl": re.compile(r":\d+:\d+:\s*warning:", re.I),
 }
 
 # Fallback for unknown tools
@@ -163,19 +213,51 @@ _WARNING_FALLBACK = re.compile(r"^(?:WARNING|Warning)[:\s]", re.M)
 # ---------------------------------------------------------------------------
 
 _UTIL_NEXTPNR = [
-    (re.compile(r"(ICESTORM_LC|LUT4|OXIDE_COMB)[:\s]+([\d,]+)\s*/\s*([\d,]+)"), "luts", 3),
-    (re.compile(r"(SB_DFF\w*|TRELLIS_FF|OXIDE_FF)[:\s]+([\d,]+)\s*/\s*([\d,]+)"), "ffs", 3),
-    (re.compile(r"(SB_RAM\w*|BRAM\w*|EBR\w*|RAMW\w*)[:\s]+([\d,]+)\s*/\s*([\d,]+)"), "brams", 3),
+    (
+        re.compile(r"(ICESTORM_LC|LUT4|OXIDE_COMB)[:\s]+([\d,]+)\s*/\s*([\d,]+)"),
+        "luts",
+        3,
+    ),
+    (
+        re.compile(r"(SB_DFF\w*|TRELLIS_FF|OXIDE_FF)[:\s]+([\d,]+)\s*/\s*([\d,]+)"),
+        "ffs",
+        3,
+    ),
+    (
+        re.compile(r"(SB_RAM\w*|BRAM\w*|EBR\w*|RAMW\w*)[:\s]+([\d,]+)\s*/\s*([\d,]+)"),
+        "brams",
+        3,
+    ),
     (re.compile(r"(SB_IO|TRELLIS_IO|OXIDE_IO)[:\s]+([\d,]+)\s*/\s*([\d,]+)"), "ios", 3),
-    (re.compile(r"(DSP48\w*|MULT18\w*|MUL18\w*)[:\s]+([\d,]+)\s*/\s*([\d,]+)"), "dsps", 3),
+    (
+        re.compile(r"(DSP48\w*|MULT18\w*|MUL18\w*)[:\s]+([\d,]+)\s*/\s*([\d,]+)"),
+        "dsps",
+        3,
+    ),
 ]
 
 _UTIL_VIVADO = [
     # Real Vivado format: | Resource | Used | Fixed | Available | Util% |
     # Skip the "Fixed" column with a non-capturing group before capturing "Available".
-    (re.compile(r"(?:Slice |CLB )LUTs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "luts", 2),
-    (re.compile(r"(?:Slice |CLB )Registers?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "ffs", 2),
-    (re.compile(r"Block RAM Tile\s*\|\s*([\d.]+)\s*\|\s*[\d.]+\s*\|\s*([\d.]+)"), "brams", 2),
+    (
+        re.compile(
+            r"(?:Slice |CLB )LUTs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"
+        ),
+        "luts",
+        2,
+    ),
+    (
+        re.compile(
+            r"(?:Slice |CLB )Registers?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"
+        ),
+        "ffs",
+        2,
+    ),
+    (
+        re.compile(r"Block RAM Tile\s*\|\s*([\d.]+)\s*\|\s*[\d.]+\s*\|\s*([\d.]+)"),
+        "brams",
+        2,
+    ),
     (re.compile(r"DSPs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "dsps", 2),
     (re.compile(r"Bonded IOB\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "ios", 2),
     (re.compile(r"URAM\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "urams", 2),
@@ -183,12 +265,44 @@ _UTIL_VIVADO = [
 
 _UTIL_QUARTUS = [
     (re.compile(r"Total logic elements?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)"), "les", 2),
-    (re.compile(r"(?:Total )?ALMs?\s*(?:used)?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)"), "alms", 2),
-    (re.compile(r"(?:Total )?(?:Adaptive |dedicated )?ALUTs?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "aluts", 2),
-    (re.compile(r"(?:Total )?(?:dedicated )?registers?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "ffs", 2),
+    (
+        re.compile(r"(?:Total )?ALMs?\s*(?:used)?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)"),
+        "alms",
+        2,
+    ),
+    (
+        re.compile(
+            r"(?:Total )?(?:Adaptive |dedicated )?ALUTs?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)",
+            re.I,
+        ),
+        "aluts",
+        2,
+    ),
+    (
+        re.compile(
+            r"(?:Total )?(?:dedicated )?registers?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)",
+            re.I,
+        ),
+        "ffs",
+        2,
+    ),
     (re.compile(r"Total memory bits\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)"), "mem_bits", 2),
-    (re.compile(r"(?:Total )?(?:M\d+K|M\d+|block memory|RAM) blocks?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "brams", 2),
-    (re.compile(r"(?:Total )?(?:embedded )?(?:DSP|multiplier)\s*(?:block|element)s?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "dsps", 2),
+    (
+        re.compile(
+            r"(?:Total )?(?:M\d+K|M\d+|block memory|RAM) blocks?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)",
+            re.I,
+        ),
+        "brams",
+        2,
+    ),
+    (
+        re.compile(
+            r"(?:Total )?(?:embedded )?(?:DSP|multiplier)\s*(?:block|element)s?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)",
+            re.I,
+        ),
+        "dsps",
+        2,
+    ),
     (re.compile(r"(?:Total )?pins?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "ios", 2),
     (re.compile(r"(?:Total )?PLLs?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "plls", 2),
     (re.compile(r"MLABs?\s*[;:]\s*([\d,]+)\s*/\s*([\d,]+)", re.I), "mlabs", 2),
@@ -203,11 +317,19 @@ _RE_NEXTPNR_FMAX = re.compile(
     r"Max frequency for clock\s+'?(\w+)'?[^:]*:\s*([\d.]+)\s*MHz(?:\s*\((\w+))?"
 )
 _RE_CRITICAL_PATH = re.compile(r"Critical path[^:]*:\s*([\d.]+)\s*ns")
-_RE_VIVADO_FMAX = re.compile(r"(?:Fmax|Maximum Frequency)\s*[;:=]\s*([\d.]+)\s*MHz", re.I)
+_RE_VIVADO_FMAX = re.compile(
+    r"(?:Fmax|Maximum Frequency)\s*[;:=]\s*([\d.]+)\s*MHz", re.I
+)
 _RE_QUARTUS_FMAX = re.compile(r"Fmax\s*[;:]\s*([\d.]+)\s*MHz", re.I)
-_RE_QUARTUS_RESTRICTED_FMAX = re.compile(r"Restricted\s+Fmax\s*[;:]\s*([\d.]+)\s*MHz", re.I)
-_RE_QUARTUS_SETUP_SLACK = re.compile(r"(?:Worst.case )?[Ss]etup\s+slack\s*[;:]\s*(-?[\d.]+)", re.I)
-_RE_QUARTUS_HOLD_SLACK = re.compile(r"(?:Worst.case )?[Hh]old\s+slack\s*[;:]\s*(-?[\d.]+)", re.I)
+_RE_QUARTUS_RESTRICTED_FMAX = re.compile(
+    r"Restricted\s+Fmax\s*[;:]\s*([\d.]+)\s*MHz", re.I
+)
+_RE_QUARTUS_SETUP_SLACK = re.compile(
+    r"(?:Worst.case )?[Ss]etup\s+slack\s*[;:]\s*(-?[\d.]+)", re.I
+)
+_RE_QUARTUS_HOLD_SLACK = re.compile(
+    r"(?:Worst.case )?[Hh]old\s+slack\s*[;:]\s*(-?[\d.]+)", re.I
+)
 
 _SLACK_PATTERNS = [
     ("wns_ns", re.compile(r"WNS\s*[\(:]\s*(-?[\d.]+)\s*ns", re.I)),
@@ -218,13 +340,13 @@ _SLACK_PATTERNS = [
 ]
 
 _CONGESTION_PATTERNS = [
-    ("level",         re.compile(r"congestion level\s*[=:]\s*(\w+)", re.I)),
+    ("level", re.compile(r"congestion level\s*[=:]\s*(\w+)", re.I)),
     ("unrouted_nets", re.compile(r"(\d+)\s+unrouted", re.I)),
     ("unrouted_nets", re.compile(r"failed to route (\d+)", re.I)),
-    ("budget",        re.compile(r"routing budget exceeded", re.I)),
-    ("level",         re.compile(r"Estimated.*congestion\s*[=:]\s*(\w+)", re.I)),
+    ("budget", re.compile(r"routing budget exceeded", re.I)),
+    ("level", re.compile(r"Estimated.*congestion\s*[=:]\s*(\w+)", re.I)),
     ("unrouted_nets", re.compile(r"Routing problems[^:]*:\s*(\d+)", re.I)),
-    ("level",         re.compile(r"Interconnect usage\s*[;:]\s*([\d.]+)\s*%", re.I)),
+    ("level", re.compile(r"Interconnect usage\s*[;:]\s*([\d.]+)\s*%", re.I)),
 ]
 
 # Progress estimation
@@ -237,6 +359,7 @@ _RE_QUARTUS_FIT_PCT = re.compile(r"(\d+)%\s+(?:complete|done)", re.I)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _pi(s: str) -> int:
     """Parse int, stripping commas."""
@@ -261,9 +384,11 @@ def _make_util(used: float, total: float) -> dict:
 # Single-pass collector
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _Collector:
     """Accumulates parse results in a single pass over log lines."""
+
     tool: str = "unknown"
     phase: str = "starting"
     phase_history: list[tuple[str, int]] = field(default_factory=list)
@@ -444,6 +569,7 @@ def _process_progress(c: _Collector, line: str) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def parse_build_log(log_text: str) -> dict:
     """Parse a build log in a single pass and return structured results.
 
@@ -480,13 +606,15 @@ def parse_build_log(log_text: str) -> dict:
     # Strip tool prefix for label lookup
     raw_phase = c.phase
     if c.tool != "unknown" and raw_phase.startswith(c.tool + "_"):
-        raw_phase = raw_phase[len(c.tool) + 1:]
+        raw_phase = raw_phase[len(c.tool) + 1 :]
     label = tool_labels.get(raw_phase, c.phase)
     if c.tool not in ("unknown",):
         label = f"{c.tool.capitalize()}: {label}" if label != c.phase else c.phase
 
     # Health
-    health = _assess_health(c.phase, c.utilization, c.timing, c.slack, c.congestion, c.errors)
+    health = _assess_health(
+        c.phase, c.utilization, c.timing, c.slack, c.congestion, c.errors
+    )
 
     result: dict = {
         "tool": c.tool,
@@ -517,6 +645,7 @@ def parse_build_log(log_text: str) -> dict:
 # Health assessment
 # ---------------------------------------------------------------------------
 
+
 def _assess_health(
     phase: str,
     utilization: dict,
@@ -538,7 +667,9 @@ def _assess_health(
         pct = data.get("pct", 0)
         if pct > 95:
             status = "critical" if status != "error" else status
-            concerns.append(f"{res} utilization at {pct}% — nearly full, expect congestion")
+            concerns.append(
+                f"{res} utilization at {pct}% — nearly full, expect congestion"
+            )
         elif pct > 80:
             if status == "ok":
                 status = "warning"

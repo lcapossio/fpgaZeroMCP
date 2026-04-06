@@ -9,7 +9,7 @@ from pathlib import Path
 
 from registry.manifest import CoreManifest
 
-CORES_DIR   = Path(__file__).parent.parent / "cores"
+CORES_DIR = Path(__file__).parent.parent / "cores"
 CONFIG_FILE = Path.home() / ".fpgazero_mcp" / "config.json"
 LOG = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def _extra_core_paths() -> list[Path]:
 
 class CoreRegistry:
     def __init__(self, cores_dir: Path = CORES_DIR) -> None:
-        self._dir   = cores_dir          # built-in / import destination
+        self._dir = cores_dir  # built-in / import destination
         self._cache: dict[str, tuple[CoreManifest, Path]] = {}
         self._load_all()
 
@@ -106,22 +106,26 @@ class CoreRegistry:
         for name, (manifest, core_dir) in self._cache.items():
             if category and manifest.category != category:
                 continue
-            results.append({
-                "name":       manifest.name,
-                "version":    manifest.version,
-                "category":   manifest.category,
-                "description":manifest.description,
-                "tags":       manifest.tags,
-                "language":   manifest.language,
-                "parameters": list(manifest.parameters.keys()),
-                "path":       str(core_dir),
-            })
+            results.append(
+                {
+                    "name": manifest.name,
+                    "version": manifest.version,
+                    "category": manifest.category,
+                    "description": manifest.description,
+                    "tags": manifest.tags,
+                    "language": manifest.language,
+                    "parameters": list(manifest.parameters.keys()),
+                    "path": str(core_dir),
+                }
+            )
         return results
 
     def get_core(self, name: str) -> dict:
         """Return the full manifest and HDL source for a named core."""
         if name not in self._cache:
-            return {"error": f"Core '{name}' not found. Use list_ip_cores to see available cores."}
+            return {
+                "error": f"Core '{name}' not found. Use list_ip_cores to see available cores."
+            }
 
         manifest, core_dir = self._cache[name]
         files: dict[str, str] = {}
@@ -139,7 +143,7 @@ class CoreRegistry:
 
         return {
             "manifest": self._manifest_dict(manifest),
-            "files":    files,
+            "files": files,
         }
 
     def import_github_core(
@@ -150,6 +154,7 @@ class CoreRegistry:
     ) -> dict:
         """Download a GitHub repo and register it as a local core."""
         from registry.github import import_core
+
         result = import_core(
             owner_repo=owner_repo,
             subdir=subdir,
@@ -173,7 +178,7 @@ class CoreRegistry:
             return {"error": f"Could not parse CAPI2 .core file: {path}"}
 
         core_name = manifest_dict["name"]
-        dest_dir  = self._dir / core_name
+        dest_dir = self._dir / core_name
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         copied: list[str] = []
@@ -201,10 +206,10 @@ class CoreRegistry:
 
         self._load_all()
         return {
-            "imported":    True,
-            "core_name":   core_name,
+            "imported": True,
+            "core_name": core_name,
             "files_copied": copied,
-            "manifest":    manifest_dict,
+            "manifest": manifest_dict,
         }
 
     def generate_ip(
@@ -225,8 +230,10 @@ class CoreRegistry:
         # Validate: reject unknown parameter names
         unknown = set(overrides) - set(declared)
         if unknown:
-            return {"error": f"Unknown parameter(s): {', '.join(sorted(unknown))}. "
-                    f"Available: {', '.join(sorted(declared))}"}
+            return {
+                "error": f"Unknown parameter(s): {', '.join(sorted(unknown))}. "
+                f"Available: {', '.join(sorted(declared))}"
+            }
 
         # Merge defaults with overrides, validate types and ranges
         params: dict[str, int | str | bool] = {}
@@ -236,14 +243,22 @@ class CoreRegistry:
 
             if ptype == "integer":
                 if isinstance(val, bool) or not isinstance(val, int):
-                    return {"error": f"Parameter '{k}' must be an integer, got {type(val).__name__}"}
+                    return {
+                        "error": f"Parameter '{k}' must be an integer, got {type(val).__name__}"
+                    }
                 if spec.get("minimum") is not None and val < spec["minimum"]:
-                    return {"error": f"Parameter '{k}' = {val} is below minimum {spec['minimum']}"}
+                    return {
+                        "error": f"Parameter '{k}' = {val} is below minimum {spec['minimum']}"
+                    }
                 if spec.get("maximum") is not None and val > spec["maximum"]:
-                    return {"error": f"Parameter '{k}' = {val} exceeds maximum {spec['maximum']}"}
+                    return {
+                        "error": f"Parameter '{k}' = {val} exceeds maximum {spec['maximum']}"
+                    }
             elif ptype == "boolean":
                 if not isinstance(val, (bool, int)):
-                    return {"error": f"Parameter '{k}' must be a boolean, got {type(val).__name__}"}
+                    return {
+                        "error": f"Parameter '{k}' must be a boolean, got {type(val).__name__}"
+                    }
                 val = bool(val)
             elif ptype == "string":
                 val = str(val)
@@ -271,8 +286,8 @@ class CoreRegistry:
         snippet = f"    {name}{param_block} {inst} ({port_block});\n"
 
         return {
-            "manifest":        manifest_data,
+            "manifest": manifest_data,
             "parameters_used": params,
-            "instantiation":   snippet,
-            "files":           core["files"],
+            "instantiation": snippet,
+            "files": core["files"],
         }

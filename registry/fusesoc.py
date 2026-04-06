@@ -6,15 +6,15 @@ FuseSoC CAPI2 (.core file) parser and converter.
 Converts a CAPI2 manifest into our core.json format.
 Reference: https://fusesoc.readthedocs.io/en/stable/user/capi2.html
 """
+
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
-HDL_EXTS = {".v": "verilog", ".sv": "systemverilog",
-             ".vhd": "vhdl", ".vhdl": "vhdl"}
+HDL_EXTS = {".v": "verilog", ".sv": "systemverilog", ".vhd": "vhdl", ".vhdl": "vhdl"}
 
 
 def _parse_capi2(content: str) -> dict:
@@ -51,7 +51,7 @@ def _collect_hdl_files(filesets: dict) -> tuple[list[str], str]:
         file_type = fs.get("file_type", "")
         for entry in fs.get("files", []):
             fname = entry if isinstance(entry, str) else next(iter(entry))
-            ext   = Path(fname).suffix.lower()
+            ext = Path(fname).suffix.lower()
             if ext in HDL_EXTS:
                 files.append(fname)
                 lang = HDL_EXTS[ext]
@@ -83,7 +83,7 @@ def _collect_parameters(raw: dict | None) -> dict:
         return {}
     result = {}
     for pname, pdata in raw.items():
-        dtype   = pdata.get("datatype", "int")
+        dtype = pdata.get("datatype", "int")
         default = pdata.get("default", 0)
         if dtype in ("int", "intval"):
             ptype = "integer"
@@ -92,15 +92,17 @@ def _collect_parameters(raw: dict | None) -> dict:
         else:
             ptype = "string"
         result[pname] = {
-            "type":        ptype,
-            "default":     default,
+            "type": ptype,
+            "default": default,
             "description": pdata.get("description", ""),
         }
     return result
 
 
 def capi2_to_manifest_dict(
-    content: str, source: str = "", license: str = "",
+    content: str,
+    source: str = "",
+    license: str = "",
 ) -> dict | None:
     """
     Parse a CAPI2 .core file and return a core.json-compatible dict.
@@ -114,26 +116,26 @@ def capi2_to_manifest_dict(
     if not data:
         return None
 
-    name, version     = _parse_name(data.get("name", "unknown"))
-    description       = data.get("description", "")
-    filesets          = data.get("filesets", {})
+    name, version = _parse_name(data.get("name", "unknown"))
+    description = data.get("description", "")
+    filesets = data.get("filesets", {})
     hdl_files, language = _collect_hdl_files(filesets)
-    parameters        = _collect_parameters(data.get("parameters"))
-    tags              = list((data.get("targets") or {}).keys())[:6]
+    parameters = _collect_parameters(data.get("parameters"))
+    tags = list((data.get("targets") or {}).keys())[:6]
 
     return {
-        "name":        name,
-        "version":     version,
+        "name": name,
+        "version": version,
         "description": description,
-        "author":      "",
-        "license":     license or "MIT",
-        "language":    language,
-        "category":    "uncategorized",
-        "tags":        tags,
-        "parameters":  parameters,
-        "ports":       {},
-        "files":       hdl_files,
-        "source":      source,
+        "author": "",
+        "license": license or "MIT",
+        "language": language,
+        "category": "uncategorized",
+        "tags": tags,
+        "parameters": parameters,
+        "ports": {},
+        "files": hdl_files,
+        "source": source,
     }
 
 

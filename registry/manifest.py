@@ -16,7 +16,7 @@ class ParameterSpec(BaseModel):
 
 class PortSpec(BaseModel):
     direction: Literal["input", "output", "inout"]
-    width: int | str          # int or parameter expression e.g. "DATA_WIDTH"
+    width: int | str  # int or parameter expression e.g. "DATA_WIDTH"
     description: str = ""
 
 

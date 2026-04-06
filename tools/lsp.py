@@ -13,6 +13,7 @@ Backends:
 
 All tools are part of OSS CAD Suite except vsg.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,15 +24,16 @@ from pathlib import Path
 from tools.workspace import temporary_workspace
 
 HDL_SUFFIX = {
-    "verilog":       ".v",
+    "verilog": ".v",
     "systemverilog": ".sv",
-    "vhdl":          ".vhd",
+    "vhdl": ".vhd",
 }
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def get_diagnostics(code: str, language: str = "verilog") -> dict:
     """Return structured diagnostics (line, col, severity, message) for HDL code.
@@ -77,17 +79,21 @@ def format_hdl(code: str, language: str = "verilog") -> dict:
 # Verilator diagnostics
 # ---------------------------------------------------------------------------
 
+
 def _verilator_diagnostics(tmpfile: str, language: str) -> dict:
     flags = ["-g2012"] if language == "systemverilog" else []
     try:
         r = subprocess.run(
             ["verilator", "--lint-only", "--error-limit", "50"] + flags + [tmpfile],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
         )
         diags = _parse_verilator(r.stdout + r.stderr, tmpfile)
         return {
-            "success":     r.returncode == 0,
-            "tool":        "verilator",
+            "success": r.returncode == 0,
+            "tool": "verilator",
             "diagnostics": diags,
         }
     except FileNotFoundError:
@@ -100,20 +106,23 @@ def _parse_verilator(output: str, filename: str) -> list[dict]:
     """Parse Verilator output: %Error-CODE: file:line:col: message"""
     diags: list[dict] = []
     pat = re.compile(
-        r"^%(Error|Warning)(?:-(\w+))?:\s*" + re.escape(filename)
+        r"^%(Error|Warning)(?:-(\w+))?:\s*"
+        + re.escape(filename)
         + r":(\d+):(?:(\d+):)?\s*(.+)$",
         re.MULTILINE,
     )
     for m in pat.finditer(output):
         level, code, line, col, msg = m.groups()
-        diags.append({
-            "severity": "error" if level == "Error" else "warning",
-            "code":     code or "",
-            "line":     int(line),
-            "col":      int(col) if col else 1,
-            "message":  msg.strip(),
-            "source":   "verilator",
-        })
+        diags.append(
+            {
+                "severity": "error" if level == "Error" else "warning",
+                "code": code or "",
+                "line": int(line),
+                "col": int(col) if col else 1,
+                "message": msg.strip(),
+                "source": "verilator",
+            }
+        )
     return diags
 
 
@@ -121,16 +130,20 @@ def _parse_verilator(output: str, filename: str) -> list[dict]:
 # Verible diagnostics + formatting
 # ---------------------------------------------------------------------------
 
+
 def _verible_lint(tmpfile: str) -> dict:
     try:
         r = subprocess.run(
             ["verible-verilog-lint", tmpfile],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
         )
         diags = _parse_verible(r.stdout + r.stderr, tmpfile)
         return {
-            "success":     r.returncode == 0,
-            "tool":        "verible-verilog-lint",
+            "success": r.returncode == 0,
+            "tool": "verible-verilog-lint",
             "diagnostics": diags,
         }
     except FileNotFoundError:
@@ -153,14 +166,16 @@ def _parse_verible(output: str, filename: str) -> list[dict]:
     )
     for m in pat.finditer(output):
         line, col, msg, rule = m.groups()
-        diags.append({
-            "severity": "warning",
-            "code":     rule or "",
-            "line":     int(line),
-            "col":      int(col),
-            "message":  msg.strip(),
-            "source":   "verible",
-        })
+        diags.append(
+            {
+                "severity": "warning",
+                "code": rule or "",
+                "line": int(line),
+                "col": int(col),
+                "message": msg.strip(),
+                "source": "verible",
+            }
+        )
     return diags
 
 
@@ -168,19 +183,22 @@ def _verible_format(tmpfile: str, original: str) -> dict:
     try:
         r = subprocess.run(
             ["verible-verilog-format", tmpfile],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
         )
         if r.returncode == 0:
             return {
-                "success":   True,
-                "tool":      "verible-verilog-format",
+                "success": True,
+                "tool": "verible-verilog-format",
                 "formatted": r.stdout,
-                "changed":   r.stdout.strip() != original.strip(),
+                "changed": r.stdout.strip() != original.strip(),
             }
         return {
-            "success":   False,
-            "tool":      "verible-verilog-format",
-            "stderr":    r.stderr,
+            "success": False,
+            "tool": "verible-verilog-format",
+            "stderr": r.stderr,
             "formatted": original,
         }
     except FileNotFoundError:
@@ -193,16 +211,20 @@ def _verible_format(tmpfile: str, original: str) -> dict:
 # GHDL diagnostics
 # ---------------------------------------------------------------------------
 
+
 def _ghdl_diagnostics(tmpfile: str) -> dict:
     try:
         r = subprocess.run(
             ["ghdl", "-a", "--std=08", tmpfile],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
         )
         diags = _parse_ghdl(r.stdout + r.stderr, tmpfile)
         return {
-            "success":     r.returncode == 0,
-            "tool":        "ghdl",
+            "success": r.returncode == 0,
+            "tool": "ghdl",
             "diagnostics": diags,
         }
     except FileNotFoundError:
@@ -220,14 +242,16 @@ def _parse_ghdl(output: str, filename: str) -> list[dict]:
     )
     for m in pat.finditer(output):
         line, col, severity, msg = m.groups()
-        diags.append({
-            "severity": severity,
-            "code":     "",
-            "line":     int(line),
-            "col":      int(col),
-            "message":  msg.strip(),
-            "source":   "ghdl",
-        })
+        diags.append(
+            {
+                "severity": severity,
+                "code": "",
+                "line": int(line),
+                "col": int(col),
+                "message": msg.strip(),
+                "source": "ghdl",
+            }
+        )
     return diags
 
 
@@ -235,19 +259,23 @@ def _parse_ghdl(output: str, filename: str) -> list[dict]:
 # vsg (VHDL Style Guide) formatting
 # ---------------------------------------------------------------------------
 
+
 def _vsg_format(tmpfile: str, original: str) -> dict:
     try:
         # vsg --fix edits the file in place
         r = subprocess.run(
             ["vsg", "--fix", "-f", tmpfile],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
         )
         formatted = Path(tmpfile).read_text(encoding="utf-8")
         return {
-            "success":   r.returncode in (0, 1),  # 1 = fixes were applied
-            "tool":      "vsg",
+            "success": r.returncode in (0, 1),  # 1 = fixes were applied
+            "tool": "vsg",
             "formatted": formatted,
-            "changed":   formatted.strip() != original.strip(),
+            "changed": formatted.strip() != original.strip(),
         }
     except FileNotFoundError:
         return {"error": "'vsg' not found. Install with: pip install vsg"}

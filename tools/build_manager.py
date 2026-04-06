@@ -6,18 +6,16 @@ Background build manager for long-running EDA tool invocations.
 Starts builds as subprocesses, streams output to log files, and provides
 status/progress queries so the caller can poll periodically.
 """
+
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
-
-from tools.workspace import temporary_workspace
 
 
 @dataclass
@@ -98,13 +96,23 @@ class BuildRecord:
 # Only EDA-related tools are permitted to prevent arbitrary command execution.
 _ALLOWED_COMMANDS = {
     # Synthesis / PnR
-    "yosys", "nextpnr-ice40", "nextpnr-ecp5", "nextpnr-nexus", "nextpnr-gowin",
+    "yosys",
+    "nextpnr-ice40",
+    "nextpnr-ecp5",
+    "nextpnr-nexus",
+    "nextpnr-gowin",
     # Simulation / lint
-    "ghdl", "iverilog", "vvp", "verilator", "verible-verilog-lint",
+    "ghdl",
+    "iverilog",
+    "vvp",
+    "verilator",
+    "verible-verilog-lint",
     # Formal verification
     "sby",
     # Programming
-    "iceprog", "openFPGALoader", "ecpprog",
+    "iceprog",
+    "openFPGALoader",
+    "ecpprog",
 }
 
 # Python is handled separately via prefix match to avoid version pinning
@@ -233,7 +241,9 @@ class BuildManager:
         if not record:
             return {"error": f"Unknown build_id: '{build_id}'"}
         if record.status != "running":
-            return {"error": f"Build '{build_id}' is not running (status: {record.status})."}
+            return {
+                "error": f"Build '{build_id}' is not running (status: {record.status})."
+            }
 
         proc = record._process
         if proc is None:
@@ -273,6 +283,7 @@ class BuildManager:
             return {"deleted": 0, "freed_kb": 0}
 
         import time as _time
+
         cutoff = _time.time() - max_age_days * 86400
         logs = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
 

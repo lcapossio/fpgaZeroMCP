@@ -6,6 +6,7 @@ Each preset maps a board name to its target, device, package, and
 default clock frequency, so users can say board="icebreaker" instead
 of manually specifying target/device/package.
 """
+
 from __future__ import annotations
 
 
@@ -89,7 +90,4 @@ def get_board_preset(board: str) -> dict | None:
 
 def list_boards() -> list[dict]:
     """Return all known board presets."""
-    return [
-        {"board": name, **preset}
-        for name, preset in sorted(BOARD_PRESETS.items())
-    ]
+    return [{"board": name, **preset} for name, preset in sorted(BOARD_PRESETS.items())]

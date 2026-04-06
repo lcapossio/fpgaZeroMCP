@@ -35,7 +35,9 @@ def _write_core(tmp_path: Path) -> None:
         },
         "files": ["uart.v"],
     }
-    (core_dir / "core.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (core_dir / "core.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
 
 def _mk_tmp_dir() -> Path:
@@ -62,7 +64,9 @@ def test_registry_list_get_generate() -> None:
     assert "files" in core
     assert "uart.v" in core["files"]
 
-    gen = reg.generate_ip("uart_core", parameters={"CLKS_PER_BIT": 32}, instance_name="u0")
+    gen = reg.generate_ip(
+        "uart_core", parameters={"CLKS_PER_BIT": 32}, instance_name="u0"
+    )
     assert "instantiation" in gen
     assert "CLKS_PER_BIT" in gen["instantiation"]
     assert "u0" in gen["instantiation"]

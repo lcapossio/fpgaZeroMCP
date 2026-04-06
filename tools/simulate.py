@@ -30,8 +30,8 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
     """Compile and run a Verilog simulation using Icarus Verilog (iverilog + vvp)."""
     with temporary_workspace("sim_") as tmpdir:
         design_file = os.path.join(tmpdir, "design.v")
-        tb_file     = os.path.join(tmpdir, "testbench.v")
-        out_file    = os.path.join(tmpdir, "sim.vvp")
+        tb_file = os.path.join(tmpdir, "testbench.v")
+        out_file = os.path.join(tmpdir, "sim.vvp")
 
         with open(design_file, "w", encoding="utf-8") as f:
             f.write(code)
@@ -41,7 +41,10 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
         try:
             compile_result = subprocess.run(
                 ["iverilog", "-g2012", "-o", out_file, tb_file, design_file],
-                capture_output=True, text=True, errors="replace", timeout=30,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=30,
             )
             if compile_result.returncode != 0:
                 return {
@@ -54,7 +57,10 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
 
             run_result = subprocess.run(
                 ["vvp", out_file],
-                capture_output=True, text=True, errors="replace", timeout=timeout,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
                 cwd=tmpdir,
             )
             result = {
@@ -63,15 +69,23 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
                 "stage": "run",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
-                "verdict": _parse_verdict(run_result.stdout, run_result.stderr, run_result.returncode),
+                "verdict": _parse_verdict(
+                    run_result.stdout, run_result.stderr, run_result.returncode
+                ),
             }
             result.update(_collect_waveforms(tmpdir))
             return result
 
         except FileNotFoundError:
-            return {"success": False, "error": "'iverilog'/'vvp' not found. Install OSS CAD Suite."}
+            return {
+                "success": False,
+                "error": "'iverilog'/'vvp' not found. Install OSS CAD Suite.",
+            }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Simulation timed out after {timeout} s."}
+            return {
+                "success": False,
+                "error": f"Simulation timed out after {timeout} s.",
+            }
 
 
 def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
@@ -84,12 +98,12 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             "tool": "ghdl",
             "stage": "elaborate",
             "error": "Could not find an entity in the testbench. "
-                     "Ensure the testbench contains an 'entity <name> is' declaration.",
+            "Ensure the testbench contains an 'entity <name> is' declaration.",
         }
 
     with temporary_workspace("sim_vhdl_") as tmpdir:
         design_file = os.path.join(tmpdir, "design.vhd")
-        tb_file     = os.path.join(tmpdir, "testbench.vhd")
+        tb_file = os.path.join(tmpdir, "testbench.vhd")
 
         with open(design_file, "w", encoding="utf-8") as f:
             f.write(code)
@@ -100,7 +114,10 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Analyze design
             analyze_design = subprocess.run(
                 ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, design_file],
-                capture_output=True, text=True, errors="replace", timeout=30,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=30,
             )
             if analyze_design.returncode != 0:
                 return {
@@ -114,7 +131,10 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Analyze testbench
             analyze_tb = subprocess.run(
                 ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, tb_file],
-                capture_output=True, text=True, errors="replace", timeout=30,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=30,
             )
             if analyze_tb.returncode != 0:
                 return {
@@ -128,7 +148,10 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Elaborate
             elab = subprocess.run(
                 ["ghdl", "-e", "--std=08", "--workdir=" + tmpdir, tb_entity],
-                capture_output=True, text=True, errors="replace", timeout=30,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=30,
                 cwd=tmpdir,
             )
             if elab.returncode != 0:
@@ -143,7 +166,10 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
             # Run
             run_result = subprocess.run(
                 ["ghdl", "-r", "--std=08", "--workdir=" + tmpdir, tb_entity],
-                capture_output=True, text=True, errors="replace", timeout=timeout,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
                 cwd=tmpdir,
             )
             result = {
@@ -152,20 +178,29 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
                 "stage": "run",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
-                "verdict": _parse_verdict(run_result.stdout, run_result.stderr, run_result.returncode),
+                "verdict": _parse_verdict(
+                    run_result.stdout, run_result.stderr, run_result.returncode
+                ),
             }
             result.update(_collect_waveforms(tmpdir))
             return result
 
         except FileNotFoundError:
-            return {"success": False, "error": "'ghdl' not found. Install OSS CAD Suite."}
+            return {
+                "success": False,
+                "error": "'ghdl' not found. Install OSS CAD Suite.",
+            }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Simulation timed out after {timeout} s."}
+            return {
+                "success": False,
+                "error": f"Simulation timed out after {timeout} s.",
+            }
 
 
 def _find_vhdl_entity(code: str) -> str | None:
     """Extract the first entity name from VHDL source."""
     import re
+
     m = re.search(r"\bentity\s+(\w+)\s+is\b", code, re.IGNORECASE)
     return m.group(1) if m else None
 
@@ -201,7 +236,10 @@ def _parse_verdict(stdout: str, stderr: str, returncode: int) -> dict:
         return {"verdict": "fail", "reason": fail_match.group(0)}
     if pass_match:
         return {"verdict": "pass", "reason": pass_match.group(0)}
-    return {"verdict": "inconclusive", "reason": "no PASS/FAIL pattern detected in output"}
+    return {
+        "verdict": "inconclusive",
+        "reason": "no PASS/FAIL pattern detected in output",
+    }
 
 
 def _summarize_vcd(vcd_text: str) -> dict:

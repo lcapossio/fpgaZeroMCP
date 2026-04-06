@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 """Tests for error paths, edge cases, and input validation."""
+
 from __future__ import annotations
 
 import json
@@ -12,14 +13,25 @@ from uuid import uuid4
 import pytest
 
 from registry.resolver import CoreRegistry
-from tools.synthesize import synthesize, validate_top_module, _resolve_sources, _yosys_read_cmds, _parse_filelist
+from tools.synthesize import (
+    synthesize,
+    validate_top_module,
+    _resolve_sources,
+    _yosys_read_cmds,
+    _parse_filelist,
+)
 from tools.pnr import place_and_route, _find_constraints
 from tools.simulate import simulate, _parse_verdict, _summarize_vcd
 from tools.lint import lint_hdl, lint_project
 from tools.boards import get_board_preset, list_boards
 from tools.build_manager import BuildManager
 from tools.build_parser import parse_build_log
-from registry.fusesoc import capi2_to_manifest_dict, _parse_name, _collect_hdl_files, _collect_parameters
+from registry.fusesoc import (
+    capi2_to_manifest_dict,
+    _parse_name,
+    _collect_hdl_files,
+    _collect_parameters,
+)
 import registry.github as gh
 from tools.litex import _build_litex_cmd
 from tools.simulate import _find_vhdl_entity
@@ -29,6 +41,7 @@ from server import _clamp_timeout
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mk_tmp_dir() -> Path:
     base = Path("no_commit") / "pytest_tmp"
@@ -41,6 +54,7 @@ def _mk_tmp_dir() -> Path:
 # ---------------------------------------------------------------------------
 # validate_top_module
 # ---------------------------------------------------------------------------
+
 
 class TestValidateTopModule:
     def test_valid_identifier(self) -> None:
@@ -67,6 +81,7 @@ class TestValidateTopModule:
 # synthesize error paths
 # ---------------------------------------------------------------------------
 
+
 class TestSynthesizeErrors:
     def test_invalid_top_module(self) -> None:
         result = synthesize("module m; endmodule", top_module="1bad")
@@ -89,6 +104,7 @@ class TestSynthesizeErrors:
 # _resolve_sources validation
 # ---------------------------------------------------------------------------
 
+
 class TestResolveSources:
     def test_no_input_returns_error(self) -> None:
         paths, err = _resolve_sources()
@@ -109,19 +125,26 @@ class TestResolveSources:
 
     def test_code_sv_extension(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(code="module m; endmodule", language="systemverilog", tmpdir=tmpdir)
+        paths, err = _resolve_sources(
+            code="module m; endmodule", language="systemverilog", tmpdir=tmpdir
+        )
         assert err is None
         assert paths[0].endswith(".sv")
 
     def test_code_vhdl_extension(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(code="entity e is end;", language="vhdl", tmpdir=tmpdir)
+        paths, err = _resolve_sources(
+            code="entity e is end;", language="vhdl", tmpdir=tmpdir
+        )
         assert err is None
         assert paths[0].endswith(".vhd")
 
     def test_files_dict(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(files={"top.v": "module top; endmodule", "sub.v": "module sub; endmodule"}, tmpdir=tmpdir)
+        paths, err = _resolve_sources(
+            files={"top.v": "module top; endmodule", "sub.v": "module sub; endmodule"},
+            tmpdir=tmpdir,
+        )
         assert err is None
         assert len(paths) == 2
 
@@ -146,7 +169,9 @@ class TestResolveSources:
 
     def test_project_dir_outside_allowed_roots_rejected(self) -> None:
         # A path that's outside cwd, home, and any FPGAZERO_ALLOWED_DIRS
-        paths, err = _resolve_sources(project_dir="/nonexistent/outside/root", language="verilog")
+        paths, err = _resolve_sources(
+            project_dir="/nonexistent/outside/root", language="verilog"
+        )
         assert err is not None
         assert "outside allowed" in err.lower() or "does not exist" in err.lower()
 
@@ -198,9 +223,12 @@ class TestYosysReadCmds:
             top_module="my_top",
         )
         # Must be a single ghdl line with all files, not one per file
-        lines = [l for l in result.strip().splitlines() if l.strip()]
+        lines = [ln for ln in result.strip().splitlines() if ln.strip()]
         assert len(lines) == 1
-        assert lines[0] == "ghdl --std=08 /tmp/pkg.vhd /tmp/design.vhd /tmp/top.vhd -e my_top"
+        assert (
+            lines[0]
+            == "ghdl --std=08 /tmp/pkg.vhd /tmp/design.vhd /tmp/top.vhd -e my_top"
+        )
 
     def test_vhdl_without_top(self) -> None:
         result = _yosys_read_cmds(["/tmp/design.vhd"], "vhdl")
@@ -229,6 +257,7 @@ class TestSynthesizeMultiFile:
 # place_and_route error paths
 # ---------------------------------------------------------------------------
 
+
 class TestPnRErrors:
     def test_unsupported_target(self) -> None:
         result = place_and_route("module m; endmodule", "m", "nonexistent", "dev")
@@ -252,6 +281,7 @@ class TestPnRErrors:
 # lint error paths
 # ---------------------------------------------------------------------------
 
+
 class TestLintErrors:
     def test_unknown_language_defaults_to_verilog(self) -> None:
         # Unknown language should still proceed (defaults to .v extension)
@@ -263,6 +293,7 @@ class TestLintErrors:
 # ---------------------------------------------------------------------------
 # Registry error paths
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryErrors:
     def test_get_missing_core(self) -> None:
@@ -308,11 +339,20 @@ class TestRegistryErrors:
         tmp = _mk_tmp_dir()
         core_dir = tmp / "evil"
         core_dir.mkdir()
-        (core_dir / "core.json").write_text(json.dumps({
-            "name": "evil", "version": "1.0", "description": "x",
-            "author": "x", "license": "MIT", "language": "verilog",
-            "category": "test", "files": ["../../etc/passwd"],
-        }))
+        (core_dir / "core.json").write_text(
+            json.dumps(
+                {
+                    "name": "evil",
+                    "version": "1.0",
+                    "description": "x",
+                    "author": "x",
+                    "license": "MIT",
+                    "language": "verilog",
+                    "category": "test",
+                    "files": ["../../etc/passwd"],
+                }
+            )
+        )
         reg = CoreRegistry(cores_dir=tmp)
         # Core should be rejected at load time
         assert "evil" not in [c["name"] for c in reg.list_cores()]
@@ -321,11 +361,20 @@ class TestRegistryErrors:
         tmp = _mk_tmp_dir()
         core_dir = tmp / "tricky"
         core_dir.mkdir()
-        (core_dir / "core.json").write_text(json.dumps({
-            "name": "tricky", "version": "1.0", "description": "x",
-            "author": "x", "license": "MIT", "language": "verilog",
-            "category": "test", "files": ["sub/../../../etc/hosts"],
-        }))
+        (core_dir / "core.json").write_text(
+            json.dumps(
+                {
+                    "name": "tricky",
+                    "version": "1.0",
+                    "description": "x",
+                    "author": "x",
+                    "license": "MIT",
+                    "language": "verilog",
+                    "category": "test",
+                    "files": ["sub/../../../etc/hosts"],
+                }
+            )
+        )
         reg = CoreRegistry(cores_dir=tmp)
         # Should be rejected at load time already
         assert "tricky" not in [c["name"] for c in reg.list_cores()]
@@ -334,11 +383,20 @@ class TestRegistryErrors:
         tmp = _mk_tmp_dir()
         core_dir = tmp / "abs"
         core_dir.mkdir()
-        (core_dir / "core.json").write_text(json.dumps({
-            "name": "abs", "version": "1.0", "description": "x",
-            "author": "x", "license": "MIT", "language": "verilog",
-            "category": "test", "files": ["/etc/passwd"],
-        }))
+        (core_dir / "core.json").write_text(
+            json.dumps(
+                {
+                    "name": "abs",
+                    "version": "1.0",
+                    "description": "x",
+                    "author": "x",
+                    "license": "MIT",
+                    "language": "verilog",
+                    "category": "test",
+                    "files": ["/etc/passwd"],
+                }
+            )
+        )
         reg = CoreRegistry(cores_dir=tmp)
         assert "abs" not in [c["name"] for c in reg.list_cores()]
 
@@ -346,6 +404,7 @@ class TestRegistryErrors:
 # ---------------------------------------------------------------------------
 # generate_ip validation
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateIpValidation:
     def test_unknown_parameter_rejected(self) -> None:
@@ -386,7 +445,9 @@ class TestGenerateIpValidation:
 
     def test_valid_parameters_accepted(self) -> None:
         reg = CoreRegistry()
-        result = reg.generate_ip("uart_tx", parameters={"DATA_WIDTH": 7, "CLKS_PER_BIT": 500})
+        result = reg.generate_ip(
+            "uart_tx", parameters={"DATA_WIDTH": 7, "CLKS_PER_BIT": 500}
+        )
         assert "error" not in result
         assert result["parameters_used"]["DATA_WIDTH"] == 7
 
@@ -394,6 +455,7 @@ class TestGenerateIpValidation:
 # ---------------------------------------------------------------------------
 # FuseSoC parser edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestFuseSocParser:
     def test_empty_content_returns_none(self) -> None:
@@ -418,13 +480,17 @@ class TestFuseSocParser:
         assert ver == "0.0.0"
 
     def test_license_passthrough(self) -> None:
-        content = "CAPI=2:\nname: ::test:1.0\nfilesets:\n  rtl:\n    files:\n      - foo.v\n"
+        content = (
+            "CAPI=2:\nname: ::test:1.0\nfilesets:\n  rtl:\n    files:\n      - foo.v\n"
+        )
         result = capi2_to_manifest_dict(content, license="GPL-3.0")
         assert result is not None
         assert result["license"] == "GPL-3.0"
 
     def test_license_defaults_to_mit(self) -> None:
-        content = "CAPI=2:\nname: ::test:1.0\nfilesets:\n  rtl:\n    files:\n      - foo.v\n"
+        content = (
+            "CAPI=2:\nname: ::test:1.0\nfilesets:\n  rtl:\n    files:\n      - foo.v\n"
+        )
         result = capi2_to_manifest_dict(content)
         assert result is not None
         assert result["license"] == "MIT"
@@ -443,6 +509,7 @@ class TestFuseSocParser:
 # ---------------------------------------------------------------------------
 # GitHub import edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestGitHubImportEdgeCases:
     def test_invalid_repo_format(self) -> None:
@@ -478,30 +545,42 @@ class TestGitHubImportEdgeCases:
 # FuseSoC boolean parameter handling
 # ---------------------------------------------------------------------------
 
+
 class TestFuseSocBoolParam:
     def test_bool_datatype_maps_to_boolean(self) -> None:
-        params = _collect_parameters({
-            "ENABLE": {"datatype": "bool", "default": True, "description": "Enable feature"},
-        })
+        params = _collect_parameters(
+            {
+                "ENABLE": {
+                    "datatype": "bool",
+                    "default": True,
+                    "description": "Enable feature",
+                },
+            }
+        )
         assert params["ENABLE"]["type"] == "boolean"
         assert params["ENABLE"]["default"] is True
 
     def test_int_datatype_maps_to_integer(self) -> None:
-        params = _collect_parameters({
-            "WIDTH": {"datatype": "int", "default": 8},
-        })
+        params = _collect_parameters(
+            {
+                "WIDTH": {"datatype": "int", "default": 8},
+            }
+        )
         assert params["WIDTH"]["type"] == "integer"
 
     def test_str_datatype_maps_to_string(self) -> None:
-        params = _collect_parameters({
-            "NAME": {"datatype": "str", "default": "foo"},
-        })
+        params = _collect_parameters(
+            {
+                "NAME": {"datatype": "str", "default": "foo"},
+            }
+        )
         assert params["NAME"]["type"] == "string"
 
 
 # ---------------------------------------------------------------------------
 # FuseSoC CAPI= header parsing
 # ---------------------------------------------------------------------------
+
 
 class TestCAPI2HeaderParsing:
     def test_capi_line_in_content_preserved(self) -> None:
@@ -523,6 +602,7 @@ class TestCAPI2HeaderParsing:
 # ---------------------------------------------------------------------------
 # LiteX board name validation
 # ---------------------------------------------------------------------------
+
 
 class TestLitexBoardValidation:
     def test_valid_board_name(self) -> None:
@@ -550,6 +630,7 @@ class TestLitexBoardValidation:
 # Timeout clamping
 # ---------------------------------------------------------------------------
 
+
 class TestClampTimeout:
     def test_normal_value(self) -> None:
         assert _clamp_timeout(60, 120) == 60
@@ -570,6 +651,7 @@ class TestClampTimeout:
 # ---------------------------------------------------------------------------
 # VHDL entity finder
 # ---------------------------------------------------------------------------
+
 
 class TestFindVhdlEntity:
     def test_simple_entity(self) -> None:
@@ -592,6 +674,7 @@ class TestFindVhdlEntity:
 # VHDL simulate error paths
 # ---------------------------------------------------------------------------
 
+
 class TestLintProject:
     def test_empty_files_returns_error(self) -> None:
         result = lint_project({})
@@ -602,6 +685,7 @@ class TestLintProject:
 # ---------------------------------------------------------------------------
 # Build manager
 # ---------------------------------------------------------------------------
+
 
 class TestBuildManager:
     def _allowed_cmd(self) -> list[str]:
@@ -624,6 +708,7 @@ class TestBuildManager:
 
         # Wait for it to finish
         import time
+
         for _ in range(20):
             s = mgr.status(bid)
             if s["status"] != "running":
@@ -639,6 +724,7 @@ class TestBuildManager:
         cmd = self._allowed_cmd()
         mgr.start(cmd=cmd, label="list-test")
         import time
+
         time.sleep(0.5)
         builds = mgr.list_builds()
         assert len(builds) >= 1
@@ -654,6 +740,7 @@ class TestBuildManager:
         cmd = self._allowed_cmd()
         result = mgr.start(cmd=cmd, label="done")
         import time
+
         time.sleep(0.5)
         cancel = mgr.cancel(result["build_id"])
         assert "error" in cancel  # already finished
@@ -687,6 +774,7 @@ class TestBuildManager:
         cmd = self._allowed_cmd()
         mgr.start(cmd=cmd, label="clear-test")
         import time
+
         time.sleep(0.5)
         result = mgr.clear_finished()
         assert result["cleared"] >= 1
@@ -695,6 +783,7 @@ class TestBuildManager:
 # ---------------------------------------------------------------------------
 # Board presets
 # ---------------------------------------------------------------------------
+
 
 class TestBoardPresets:
     def test_icebreaker_preset(self) -> None:
@@ -737,6 +826,7 @@ class TestBoardPresets:
 # Constraint auto-detection
 # ---------------------------------------------------------------------------
 
+
 class TestConstraintAutoDetect:
     def test_finds_pcf_in_project_dir(self) -> None:
         tmpdir = _mk_tmp_dir()
@@ -765,13 +855,16 @@ class TestConstraintAutoDetect:
 # Filelist parsing
 # ---------------------------------------------------------------------------
 
+
 class TestFilelistParsing:
     def test_basic_filelist(self) -> None:
         tmpdir = _mk_tmp_dir()
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
         (tmpdir / "b.v").write_text("module b; endmodule", encoding="utf-8")
         (tmpdir / "files.f").write_text("a.v\nb.v\n", encoding="utf-8")
-        sources, incdirs, defines = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
+        sources, incdirs, defines = _parse_filelist(
+            str(tmpdir / "files.f"), str(tmpdir)
+        )
         assert len(sources) == 2
 
     def test_incdir_and_define(self) -> None:
@@ -781,14 +874,18 @@ class TestFilelistParsing:
             encoding="utf-8",
         )
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
-        sources, incdirs, defines = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
+        sources, incdirs, defines = _parse_filelist(
+            str(tmpdir / "files.f"), str(tmpdir)
+        )
         assert len(sources) == 1
         assert any("include" in d for d in incdirs)
         assert "SIMULATION" in defines
 
     def test_comments_and_blanks_ignored(self) -> None:
         tmpdir = _mk_tmp_dir()
-        (tmpdir / "files.f").write_text("# comment\n\n// another\na.v\n", encoding="utf-8")
+        (tmpdir / "files.f").write_text(
+            "# comment\n\n// another\na.v\n", encoding="utf-8"
+        )
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
         sources, _, _ = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
         assert len(sources) == 1
@@ -809,6 +906,7 @@ class TestFilelistParsing:
 # ---------------------------------------------------------------------------
 # Simulation verdict parsing
 # ---------------------------------------------------------------------------
+
 
 class TestSimulationVerdict:
     def test_pass_detected(self) -> None:
@@ -836,14 +934,15 @@ class TestSimulationVerdict:
 # VCD summary
 # ---------------------------------------------------------------------------
 
+
 class TestVcdSummary:
     def test_basic_vcd(self) -> None:
         vcd = (
             "$var wire 1 ! clk $end\n"
-            "$var wire 1 \" data $end\n"
+            '$var wire 1 " data $end\n'
             "$enddefinitions $end\n"
-            "#0\n0!\n0\"\n"
-            "#10\n1!\n1\"\n"
+            '#0\n0!\n0"\n'
+            '#10\n1!\n1"\n'
             "#20\n0!\n"
         )
         summary = _summarize_vcd(vcd)
@@ -862,24 +961,31 @@ class TestVcdSummary:
 # Include paths in yosys read commands
 # ---------------------------------------------------------------------------
 
+
 class TestIncludePaths:
     def test_include_dirs_in_read_verilog(self) -> None:
         result = _yosys_read_cmds(
-            ["/tmp/a.v"], "verilog", include_dirs=["/project/rtl", "/project/inc"],
+            ["/tmp/a.v"],
+            "verilog",
+            include_dirs=["/project/rtl", "/project/inc"],
         )
         assert "-I/project/rtl" in result
         assert "-I/project/inc" in result
 
     def test_defines_in_read_verilog(self) -> None:
         result = _yosys_read_cmds(
-            ["/tmp/a.v"], "verilog", defines=["SIMULATION", "WIDTH=8"],
+            ["/tmp/a.v"],
+            "verilog",
+            defines=["SIMULATION", "WIDTH=8"],
         )
         assert "-DSIMULATION" in result
         assert "-DWIDTH=8" in result
 
     def test_no_include_dirs_for_vhdl(self) -> None:
         result = _yosys_read_cmds(
-            ["/tmp/a.vhd"], "vhdl", top_module="top",
+            ["/tmp/a.vhd"],
+            "vhdl",
+            top_module="top",
             include_dirs=["/project/inc"],
         )
         assert "-I" not in result
@@ -1091,11 +1197,7 @@ class TestBuildParser:
         assert result["utilization"]["mlabs"]["used"] == 34
 
     def test_quartus_fmax(self) -> None:
-        log = (
-            "quartus_sta\n"
-            "Fmax : 142.34 MHz\n"
-            "Restricted Fmax : 100.00 MHz\n"
-        )
+        log = "quartus_sta\nFmax : 142.34 MHz\nRestricted Fmax : 100.00 MHz\n"
         result = parse_build_log(log)
         assert result["timing"]["fmax_mhz"] == 142.34
         assert result["timing"]["restricted_fmax_mhz"] == 100.0

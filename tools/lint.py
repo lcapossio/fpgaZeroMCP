@@ -34,7 +34,8 @@ def _wsl_has_verilator() -> bool:
     try:
         r = subprocess.run(
             ["wsl", "which", "verilator"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         return r.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -92,7 +93,9 @@ def lint_hdl(
             cmd = ["iverilog", "-tnull", tmpfile]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, errors="replace", timeout=30
+            )
         except FileNotFoundError:
             if language == "vhdl":
                 tool = "ghdl"
@@ -165,7 +168,9 @@ def lint_project(
             cmd += written
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, errors="replace", timeout=timeout
+            )
         except FileNotFoundError:
             if language == "vhdl":
                 tool = "ghdl"

@@ -48,7 +48,7 @@ def litex_build(
     timeout: int = 600,
 ) -> dict:
     """Run LiteX board target with --build. Returns logs and output directory."""
-    with temporary_workspace("litex_build_") as tmpdir:
+    with temporary_workspace("litex_build_"):
         if output_dir:
             out_dir = Path(output_dir)
         else:
@@ -74,7 +74,7 @@ def litex_soc(
     timeout: int = 300,
 ) -> dict:
     """Generate LiteX SoC without building gateware."""
-    with temporary_workspace("litex_soc_") as tmpdir:
+    with temporary_workspace("litex_soc_"):
         if output_dir:
             out_dir = Path(output_dir)
         else:

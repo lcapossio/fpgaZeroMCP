@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import time
 from pathlib import Path
 
@@ -19,6 +18,7 @@ _MAX_RETRIES = 3
 GITHUB_API = "https://api.github.com"
 GITHUB_RAW = "https://raw.githubusercontent.com"
 
+
 def _build_headers() -> dict[str, str]:
     hdrs = {
         "Accept": "application/vnd.github+json",
@@ -30,6 +30,7 @@ def _build_headers() -> dict[str, str]:
         hdrs["Authorization"] = f"Bearer {token}"
     return hdrs
 
+
 _HEADERS = _build_headers()
 
 # ---------------------------------------------------------------------------
@@ -40,9 +41,17 @@ _HEADERS = _build_headers()
 #          GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0
 # ---------------------------------------------------------------------------
 _DEFAULT_LICENSES = {
-    "MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC",
-    "GPL-2.0", "GPL-3.0", "LGPL-2.1", "LGPL-3.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "GPL-2.0",
+    "GPL-3.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
 }
+
 
 def _allowed_licenses() -> set[str]:
     raw = os.environ.get("FPGAZERO_ALLOWED_LICENSES", "")
@@ -50,27 +59,38 @@ def _allowed_licenses() -> set[str]:
         return {s.strip() for s in raw.split(",") if s.strip()}
     return _DEFAULT_LICENSES
 
-HDL_EXTS  = {".v", ".sv", ".vhd", ".vhdl"}
+
+HDL_EXTS = {".v", ".sv", ".vhd", ".vhdl"}
 CORE_EXTS = {".core"}
 
 _LANGUAGE_MAP = {
-    "verilog":       "Verilog",
+    "verilog": "Verilog",
     "systemverilog": "SystemVerilog",
-    "vhdl":          "VHDL",
+    "vhdl": "VHDL",
 }
 
 _CATEGORY_KEYWORDS = {
-    "communication": ["uart", "spi", "i2c", "usb", "ethernet", "can", "serial", "rs232"],
-    "memory":        ["fifo", "ram", "rom", "cache", "memory", "sdram", "ddr", "sram"],
-    "dsp":           ["fft", "dsp", "filter", "fir", "iir", "cordic", "decimat"],
-    "cpu":           ["cpu", "risc", "riscv", "mips", "processor", "core", "rv32"],
-    "video":         ["vga", "hdmi", "video", "display", "lcd", "dvi"],
+    "communication": [
+        "uart",
+        "spi",
+        "i2c",
+        "usb",
+        "ethernet",
+        "can",
+        "serial",
+        "rs232",
+    ],
+    "memory": ["fifo", "ram", "rom", "cache", "memory", "sdram", "ddr", "sram"],
+    "dsp": ["fft", "dsp", "filter", "fir", "iir", "cordic", "decimat"],
+    "cpu": ["cpu", "risc", "riscv", "mips", "processor", "core", "rv32"],
+    "video": ["vga", "hdmi", "video", "display", "lcd", "dvi"],
 }
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _request(
     url: str,
@@ -87,7 +107,7 @@ def _request(
             with httpx.Client(timeout=timeout) as client:
                 resp = client.get(url, headers=hdrs, params=params)
                 if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
-                    delay = 2 ** attempt
+                    delay = 2**attempt
                     LOG.debug("GitHub %d, retrying in %ds", resp.status_code, delay)
                     time.sleep(delay)
                     continue
@@ -96,7 +116,7 @@ def _request(
         except httpx.TransportError as exc:
             last_exc = exc
             if attempt < _MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             raise
     raise last_exc  # type: ignore[misc]
@@ -106,15 +126,25 @@ def _get(url: str, params: dict | None = None) -> dict | list:
     return _request(url, params=params).json()
 
 
+def _get_dict(url: str, params: dict | None = None) -> dict:
+    """Like _get but asserts the JSON response is a dict."""
+    data = _get(url, params=params)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected dict from GitHub API, got {type(data).__name__}")
+    return data
+
+
 def _download_raw(owner: str, repo: str, path: str, ref: str) -> str:
     url = f"{GITHUB_RAW}/{owner}/{repo}/{ref}/{path}"
     return _request(
-        url, headers={"User-Agent": "fpgaZeroMCP/0.1"}, timeout=30,
+        url,
+        headers={"User-Agent": "fpgaZeroMCP/0.1"},
+        timeout=30,
     ).text
 
 
 def _fetch_tree(owner: str, repo: str, ref: str) -> list[dict]:
-    data = _get(
+    data = _get_dict(
         f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/{ref}",
         params={"recursive": "1"},
     )
@@ -153,13 +183,18 @@ def _dominant_language(hdl_paths: list[str]) -> str:
         ext = Path(p).suffix.lower()
         counts[ext] = counts.get(ext, 0) + 1
     dominant = max(counts, key=counts.__getitem__) if counts else ".v"
-    return {".v": "verilog", ".sv": "systemverilog",
-            ".vhd": "vhdl", ".vhdl": "vhdl"}.get(dominant, "verilog")
+    return {
+        ".v": "verilog",
+        ".sv": "systemverilog",
+        ".vhd": "vhdl",
+        ".vhdl": "vhdl",
+    }.get(dominant, "verilog")
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def search_repos(
     query: str,
@@ -172,26 +207,35 @@ def search_repos(
         q += f" language:{_LANGUAGE_MAP[language]}"
 
     try:
-        data = _get(f"{GITHUB_API}/search/repositories", params={
-            "q": q, "sort": "stars", "order": "desc",
-            "per_page": min(max_results, 30),
-        })
+        data = _get_dict(
+            f"{GITHUB_API}/search/repositories",
+            params={
+                "q": q,
+                "sort": "stars",
+                "order": "desc",
+                "per_page": min(max_results, 30),
+            },
+        )
     except httpx.HTTPStatusError as e:
-        return [{"error": f"GitHub API error {e.response.status_code}: {e.response.text}"}]
+        return [
+            {"error": f"GitHub API error {e.response.status_code}: {e.response.text}"}
+        ]
     except httpx.TransportError as e:
         return [{"error": f"GitHub API connection error: {e}"}]
 
     results = []
     for item in data.get("items", [])[:max_results]:
-        results.append({
-            "repo":           item["full_name"],
-            "description":    item.get("description") or "",
-            "stars":          item["stargazers_count"],
-            "license":        (item.get("license") or {}).get("spdx_id", "unknown"),
-            "topics":         item.get("topics", []),
-            "default_branch": item.get("default_branch", "main"),
-            "url":            item["html_url"],
-        })
+        results.append(
+            {
+                "repo": item["full_name"],
+                "description": item.get("description") or "",
+                "stars": item["stargazers_count"],
+                "license": (item.get("license") or {}).get("spdx_id", "unknown"),
+                "topics": item.get("topics", []),
+                "default_branch": item.get("default_branch", "main"),
+                "url": item["html_url"],
+            }
+        )
     return results
 
 
@@ -214,7 +258,7 @@ def import_core(
 
     # Repo metadata
     try:
-        meta = _get(f"{GITHUB_API}/repos/{owner}/{repo}")
+        meta = _get_dict(f"{GITHUB_API}/repos/{owner}/{repo}")
     except httpx.HTTPStatusError as e:
         return {"error": f"GitHub API {e.response.status_code}: {e.response.text}"}
     except Exception as e:
@@ -250,15 +294,18 @@ def import_core(
         try:
             raw = _download_raw(owner, repo, core_paths[0], ref)
             from registry.fusesoc import capi2_to_manifest_dict
+
             fuse_manifest = capi2_to_manifest_dict(
-                raw, source=f"https://github.com/{owner_repo}", license=license_id,
+                raw,
+                source=f"https://github.com/{owner_repo}",
+                license=license_id,
             )
         except Exception:
             pass  # non-fatal
 
     # Download HDL files (preserve relative paths)
     core_name = repo.lower().replace("-", "_").replace(".", "_")
-    dest_dir  = dest_parent / core_name
+    dest_dir = dest_parent / core_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     downloaded: list[str] = []
@@ -279,6 +326,7 @@ def import_core(
     if failed and not downloaded:
         # Total failure — clean up and abort
         import shutil
+
         shutil.rmtree(dest_dir, ignore_errors=True)
         return {
             "error": f"All file downloads failed for {owner_repo}",
@@ -289,13 +337,13 @@ def import_core(
         # Partial failure -- don't register as a core (no core.json written)
         # Files that did download are kept for manual repair
         return {
-            "imported":      False,
-            "partial":       True,
-            "core_name":     core_name,
-            "source":        f"https://github.com/{owner_repo}",
-            "ref":           ref,
+            "imported": False,
+            "partial": True,
+            "core_name": core_name,
+            "source": f"https://github.com/{owner_repo}",
+            "ref": ref,
             "files_fetched": downloaded,
-            "failed_files":  failed,
+            "failed_files": failed,
             "error": (
                 f"{len(failed)} of {len(hdl_paths)} file(s) failed to download. "
                 f"Core not registered. Downloaded files kept in {dest_dir} for manual repair."
@@ -304,35 +352,37 @@ def import_core(
 
     # Build manifest (FuseSoC wins if available)
     description = meta.get("description") or f"Imported from github.com/{owner_repo}"
-    topics      = meta.get("topics", [])
+    topics = meta.get("topics", [])
 
     manifest = fuse_manifest or {
-        "name":        core_name,
-        "version":     ref,
+        "name": core_name,
+        "version": ref,
         "description": description,
-        "author":      owner,
-        "license":     license_id,
-        "language":    _dominant_language(hdl_paths),
-        "category":    _infer_category(" ".join(topics) + " " + repo + " " + description),
-        "tags":        topics[:8],
-        "parameters":  {},
-        "ports":       {},
-        "files":       downloaded,
+        "author": owner,
+        "license": license_id,
+        "language": _dominant_language(hdl_paths),
+        "category": _infer_category(" ".join(topics) + " " + repo + " " + description),
+        "tags": topics[:8],
+        "parameters": {},
+        "ports": {},
+        "files": downloaded,
     }
 
     # Always update files list to what was actually downloaded
-    manifest["files"]  = downloaded
+    manifest["files"] = downloaded
     manifest["source"] = f"https://github.com/{owner_repo}"
 
-    (dest_dir / "core.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (dest_dir / "core.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
     return {
-        "imported":      True,
-        "core_name":     core_name,
-        "source":        f"https://github.com/{owner_repo}",
-        "ref":           ref,
-        "license":       license_id,
+        "imported": True,
+        "core_name": core_name,
+        "source": f"https://github.com/{owner_repo}",
+        "ref": ref,
+        "license": license_id,
         "files_fetched": downloaded,
-        "fusesoc_used":  fuse_manifest is not None,
-        "manifest":      manifest,
+        "fusesoc_used": fuse_manifest is not None,
+        "manifest": manifest,
     }

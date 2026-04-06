@@ -9,14 +9,19 @@ import re
 import subprocess
 from pathlib import Path
 
-from tools.boards import get_board_preset, BOARD_PRESETS
-from tools.synthesize import SYNTH_CMDS, validate_top_module, _resolve_sources, _yosys_read_cmds
+from tools.boards import get_board_preset
+from tools.synthesize import (
+    SYNTH_CMDS,
+    validate_top_module,
+    _resolve_sources,
+    _yosys_read_cmds,
+)
 from tools.workspace import temporary_workspace
 
 # nextpnr binary per target
 NEXTPNR_BIN = {
     "ice40": "nextpnr-ice40",
-    "ecp5":  "nextpnr-ecp5",
+    "ecp5": "nextpnr-ecp5",
     "nexus": "nextpnr-nexus",
     "gowin": "nextpnr-gowin",
 }
@@ -24,7 +29,7 @@ NEXTPNR_BIN = {
 # Constraints file extension per target
 CONSTRAINTS_EXT = {
     "ice40": ".pcf",
-    "ecp5":  ".lpf",
+    "ecp5": ".lpf",
     "nexus": ".pdc",
     "gowin": ".cst",
 }
@@ -32,7 +37,7 @@ CONSTRAINTS_EXT = {
 # nextpnr output file extension per target
 OUTPUT_EXT = {
     "ice40": ".asc",
-    "ecp5":  ".config",
+    "ecp5": ".config",
     "nexus": ".fasm",
     "gowin": "_pnr.json",
 }
@@ -93,11 +98,19 @@ def place_and_route(
     """
     if backend == "litex":
         if not litex_board:
-            return {"success": False, "error": "litex_board is required for LiteX backend."}
+            return {
+                "success": False,
+                "error": "litex_board is required for LiteX backend.",
+            }
         from tools.litex import litex_build
-        result = litex_build(board=litex_board, args=litex_args or [], timeout=max(timeout, 300))
+
+        result = litex_build(
+            board=litex_board, args=litex_args or [], timeout=max(timeout, 300)
+        )
         result["backend"] = "litex"
-        result["note"] = "LiteX backend ignores code/top_module/target/device and runs board build."
+        result["note"] = (
+            "LiteX backend ignores code/top_module/target/device and runs board build."
+        )
         return result
 
     # Apply board preset (explicit params override preset values)
@@ -109,11 +122,17 @@ def place_and_route(
 
     if not target or target not in NEXTPNR_BIN:
         supported = list(NEXTPNR_BIN.keys())
-        return {"success": False, "error": f"Unsupported PnR target '{target}'. Supported: {supported}"}
+        return {
+            "success": False,
+            "error": f"Unsupported PnR target '{target}'. Supported: {supported}",
+        }
 
     synth_cmd = SYNTH_CMDS.get(target)
     if not synth_cmd:
-        return {"success": False, "error": f"No Yosys synth command for target '{target}'"}
+        return {
+            "success": False,
+            "error": f"No Yosys synth command for target '{target}'",
+        }
     if not top_module:
         return {"success": False, "error": "top_module is required."}
     top_err = validate_top_module(top_module)
@@ -122,9 +141,11 @@ def place_and_route(
 
     # Determine whether to use a persistent work_dir or a temp workspace
     use_persistent = bool(work_dir)
+    persistent_dir: str = ""
     if use_persistent:
-        os.makedirs(work_dir, exist_ok=True)  # type: ignore[arg-type]
-        tmpdir = work_dir  # type: ignore[assignment]
+        assert work_dir is not None
+        os.makedirs(work_dir, exist_ok=True)
+        persistent_dir = work_dir
 
     def _run_in(tmpdir: str) -> dict:
         src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
@@ -132,9 +153,9 @@ def place_and_route(
             return {"success": False, "error": err}
 
         netlist_json = os.path.join(tmpdir, "netlist.json")
-        ys_script    = os.path.join(tmpdir, "synth.ys")
-        out_file     = os.path.join(tmpdir, f"out{OUTPUT_EXT[target]}")
-        cst_file     = os.path.join(tmpdir, f"constraints{CONSTRAINTS_EXT[target]}")
+        ys_script = os.path.join(tmpdir, "synth.ys")
+        out_file = os.path.join(tmpdir, f"out{OUTPUT_EXT[target]}")
+        cst_file = os.path.join(tmpdir, f"constraints{CONSTRAINTS_EXT[target]}")
 
         # Auto-detect include directories from project_dir
         include_dirs: list[str] = []
@@ -153,10 +174,7 @@ def place_and_route(
         # ghdl-yosys-plugin lowercases VHDL entity names during import
         yosys_top = top_module.lower() if language == "vhdl" else top_module
 
-        script = (
-            f"{read_cmds}"
-            f"{synth_cmd} -top {yosys_top} -json {netlist_yosys}\n"
-        )
+        script = f"{read_cmds}{synth_cmd} -top {yosys_top} -json {netlist_yosys}\n"
         with open(ys_script, "w", encoding="utf-8") as f:
             f.write(script)
 
@@ -164,17 +182,27 @@ def place_and_route(
         # Stage 1: Synthesis
         # ------------------------------------------------------------------
         import time as _time
+
         deadline = _time.monotonic() + timeout
         synth_timeout = min(max(timeout // 3, 30), timeout)
         try:
             synth = subprocess.run(
                 ["yosys", "-s", ys_script],
-                capture_output=True, text=True, errors="replace", timeout=synth_timeout,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=synth_timeout,
             )
         except FileNotFoundError:
-            return {"success": False, "error": "'yosys' not found. Install OSS CAD Suite."}
+            return {
+                "success": False,
+                "error": "'yosys' not found. Install OSS CAD Suite.",
+            }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Synthesis timed out after {synth_timeout} s."}
+            return {
+                "success": False,
+                "error": f"Synthesis timed out after {synth_timeout} s.",
+            }
 
         if synth.returncode != 0:
             return {
@@ -185,9 +213,13 @@ def place_and_route(
             }
 
         if not os.path.exists(netlist_json):
-            return {"success": False, "stage": "synthesis",
-                    "error": "Yosys did not produce a netlist JSON.",
-                    "stdout": synth.stdout, "stderr": synth.stderr}
+            return {
+                "success": False,
+                "stage": "synthesis",
+                "error": "Yosys did not produce a netlist JSON.",
+                "stdout": synth.stdout,
+                "stderr": synth.stderr,
+            }
 
         # Resolve constraints: explicit string > auto-detect from project_dir
         effective_cst: str | None = None
@@ -207,8 +239,13 @@ def place_and_route(
         # Stage 2: Place and route
         # ------------------------------------------------------------------
         cmd = _build_cmd(
-            NEXTPNR_BIN[target], target, device, package,
-            netlist_json, out_file, effective_cst,
+            NEXTPNR_BIN[target],
+            target,
+            device,
+            package,
+            netlist_json,
+            out_file,
+            effective_cst,
         )
         if nextpnr_args:
             cmd.extend(nextpnr_args)
@@ -227,29 +264,39 @@ def place_and_route(
             }
         try:
             pnr = subprocess.run(
-                cmd, capture_output=True, text=True, errors="replace", timeout=pnr_timeout,
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=pnr_timeout,
             )
         except FileNotFoundError:
-            return {"success": False, "error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite."}
+            return {
+                "success": False,
+                "error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite.",
+            }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Place and route timed out after {pnr_timeout} s."}
+            return {
+                "success": False,
+                "error": f"Place and route timed out after {pnr_timeout} s.",
+            }
 
         combined_output = pnr.stdout + pnr.stderr
 
         result: dict = {
-            "success":     pnr.returncode == 0,
-            "stage":       "place_and_route",
-            "target":      target,
-            "device":      device,
-            "package":     package,
-            "language":    language,
-            "top_module":  top_module,
+            "success": pnr.returncode == 0,
+            "stage": "place_and_route",
+            "target": target,
+            "device": device,
+            "package": package,
+            "language": language,
+            "top_module": top_module,
             "constraints": cst_source,
-            "timing":      _parse_timing(combined_output),
+            "timing": _parse_timing(combined_output),
             "utilization": _parse_utilization(combined_output, target),
-            "synth_log":   synth.stdout,
-            "pnr_stdout":  pnr.stdout,
-            "pnr_stderr":  pnr.stderr,
+            "synth_log": synth.stdout,
+            "pnr_stdout": pnr.stdout,
+            "pnr_stderr": pnr.stderr,
         }
 
         # Evaluate timing against board clock target
@@ -269,22 +316,27 @@ def place_and_route(
 
         # Include bitstream/config output if PnR succeeded
         if pnr.returncode == 0 and os.path.exists(out_file):
-            with open(out_file, "rb") as f:
-                result["bitstream_b64"] = base64.b64encode(f.read()).decode("ascii")
+            with open(out_file, "rb") as bf:
+                result["bitstream_b64"] = base64.b64encode(bf.read()).decode("ascii")
             result["bitstream_ext"] = OUTPUT_EXT[target]
 
         return result
 
     if use_persistent:
-        return _run_in(tmpdir)
+        return _run_in(persistent_dir)
     else:
         with temporary_workspace("pnr_") as tmpdir:
             return _run_in(tmpdir)
 
 
 def _build_cmd(
-    binary: str, target: str, device: str, package: str,
-    netlist: str, out_file: str, constraints: str | None,
+    binary: str,
+    target: str,
+    device: str,
+    package: str,
+    netlist: str,
+    out_file: str,
+    constraints: str | None,
 ) -> list[str]:
     cmd = [binary]
 
@@ -338,29 +390,29 @@ def _parse_utilization(output: str, target: str) -> dict:
 
     patterns = {
         "ice40": [
-            (r"ICESTORM_LC[:\s]+([\d]+)/\s*([\d]+)",   "luts"),
-            (r"SB_IO[:\s]+([\d]+)/\s*([\d]+)",          "ios"),
-            (r"SB_RAM40_4K[:\s]+([\d]+)/\s*([\d]+)",    "brams"),
+            (r"ICESTORM_LC[:\s]+([\d]+)/\s*([\d]+)", "luts"),
+            (r"SB_IO[:\s]+([\d]+)/\s*([\d]+)", "ios"),
+            (r"SB_RAM40_4K[:\s]+([\d]+)/\s*([\d]+)", "brams"),
         ],
         "ecp5": [
-            (r"LUT4[:\s]+([\d]+)/\s*([\d]+)",           "luts"),
-            (r"TRELLIS_IO[:\s]+([\d]+)/\s*([\d]+)",     "ios"),
-            (r"TRELLIS_RAMW[:\s]+([\d]+)/\s*([\d]+)",   "brams"),
+            (r"LUT4[:\s]+([\d]+)/\s*([\d]+)", "luts"),
+            (r"TRELLIS_IO[:\s]+([\d]+)/\s*([\d]+)", "ios"),
+            (r"TRELLIS_RAMW[:\s]+([\d]+)/\s*([\d]+)", "brams"),
         ],
         "nexus": [
-            (r"OXIDE_COMB[:\s]+([\d]+)/\s*([\d]+)",     "luts"),
-            (r"OXIDE_FF[:\s]+([\d]+)/\s*([\d]+)",       "ffs"),
+            (r"OXIDE_COMB[:\s]+([\d]+)/\s*([\d]+)", "luts"),
+            (r"OXIDE_FF[:\s]+([\d]+)/\s*([\d]+)", "ffs"),
         ],
         "gowin": [
-            (r"LUT[:\s]+([\d]+)/\s*([\d]+)",            "luts"),
-            (r"FF[:\s]+([\d]+)/\s*([\d]+)",             "ffs"),
+            (r"LUT[:\s]+([\d]+)/\s*([\d]+)", "luts"),
+            (r"FF[:\s]+([\d]+)/\s*([\d]+)", "ffs"),
         ],
     }
 
     for pattern, label in patterns.get(target, []):
         m = re.search(pattern, output)
         if m:
-            util[f"{label}_used"]  = int(m.group(1))
+            util[f"{label}_used"] = int(m.group(1))
             util[f"{label}_total"] = int(m.group(2))
 
     return util

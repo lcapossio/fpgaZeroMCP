@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 """Check which EDA tools are installed and reachable."""
+
 from __future__ import annotations
 
 import shutil
@@ -8,16 +9,16 @@ import subprocess
 
 
 _TOOLS = [
-    ("iverilog",              "Icarus Verilog (lint, simulate)"),
-    ("vvp",                   "Icarus Verilog runtime"),
-    ("yosys",                 "Yosys (synthesis)"),
-    ("nextpnr-ice40",        "nextpnr for iCE40"),
-    ("nextpnr-ecp5",         "nextpnr for ECP5"),
-    ("ghdl",                  "GHDL (VHDL analysis/simulation)"),
-    ("verilator",             "Verilator (lint, diagnostics)"),
-    ("verible-verilog-lint",  "Verible linter"),
-    ("verible-verilog-format","Verible formatter"),
-    ("vsg",                   "VHDL Style Guide (formatter)"),
+    ("iverilog", "Icarus Verilog (lint, simulate)"),
+    ("vvp", "Icarus Verilog runtime"),
+    ("yosys", "Yosys (synthesis)"),
+    ("nextpnr-ice40", "nextpnr for iCE40"),
+    ("nextpnr-ecp5", "nextpnr for ECP5"),
+    ("ghdl", "GHDL (VHDL analysis/simulation)"),
+    ("verilator", "Verilator (lint, diagnostics)"),
+    ("verible-verilog-lint", "Verible linter"),
+    ("verible-verilog-format", "Verible formatter"),
+    ("vsg", "VHDL Style Guide (formatter)"),
 ]
 
 
@@ -53,7 +54,10 @@ def _get_version(binary: str) -> str:
         try:
             r = subprocess.run(
                 [binary, flag],
-                capture_output=True, text=True, errors="replace", timeout=5,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=5,
             )
             output = (r.stdout + r.stderr).strip()
             if r.returncode == 0 and output:

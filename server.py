@@ -7,8 +7,6 @@ import json
 import logging
 
 import mcp.types as types
-
-logger = logging.getLogger("fpgaZeroMCP")
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
@@ -23,6 +21,8 @@ from tools.boards import list_boards
 from tools.build_manager import BuildManager
 from tools.healthcheck import check_tools
 from tools.program import program_fpga
+
+logger = logging.getLogger("fpgaZeroMCP")
 
 app = Server("fpgaZeroMCP")
 registry = CoreRegistry()
@@ -42,6 +42,7 @@ def _clamp_timeout(value: int, default: int) -> int:
 # Tool definitions
 # ---------------------------------------------------------------------------
 
+
 @app.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
     return [
@@ -54,14 +55,20 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":     {"type": "string", "description": "HDL source code to lint"},
+                    "code": {
+                        "type": "string",
+                        "description": "HDL source code to lint",
+                    },
                     "language": {
                         "type": "string",
                         "enum": ["verilog", "systemverilog", "vhdl"],
                         "default": "verilog",
                         "description": "HDL language variant",
                     },
-                    "top_module": {"type": "string", "description": "Top-level module name (optional)"},
+                    "top_module": {
+                        "type": "string",
+                        "description": "Top-level module name (optional)",
+                    },
                     "linter": {
                         "type": "string",
                         "enum": ["iverilog", "verilator"],
@@ -97,7 +104,10 @@ async def handle_list_tools() -> list[types.Tool]:
                         "default": "verilog",
                         "description": "HDL language variant",
                     },
-                    "top_module": {"type": "string", "description": "Top-level module name (optional)"},
+                    "top_module": {
+                        "type": "string",
+                        "description": "Top-level module name (optional)",
+                    },
                     "timeout": {
                         "type": "integer",
                         "default": 60,
@@ -125,7 +135,10 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":       {"type": "string", "description": "HDL source code (single-file mode)"},
+                    "code": {
+                        "type": "string",
+                        "description": "HDL source code (single-file mode)",
+                    },
                     "files": {
                         "type": "object",
                         "description": "Multi-file mode: mapping of filename to source code",
@@ -135,7 +148,10 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Disk mode: path to directory containing HDL source files",
                     },
-                    "top_module": {"type": "string", "description": "Name of the top-level module"},
+                    "top_module": {
+                        "type": "string",
+                        "description": "Name of the top-level module",
+                    },
                     "language": {
                         "type": "string",
                         "enum": ["verilog", "systemverilog", "vhdl"],
@@ -144,7 +160,15 @@ async def handle_list_tools() -> list[types.Tool]:
                     },
                     "target": {
                         "type": "string",
-                        "enum": ["generic", "ice40", "ecp5", "nexus", "gowin", "xilinx", "intel"],
+                        "enum": [
+                            "generic",
+                            "ice40",
+                            "ecp5",
+                            "nexus",
+                            "gowin",
+                            "xilinx",
+                            "intel",
+                        ],
                         "default": "generic",
                         "description": "FPGA family / synthesis target",
                     },
@@ -190,7 +214,10 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":        {"type": "string", "description": "HDL source code (single-file mode)"},
+                    "code": {
+                        "type": "string",
+                        "description": "HDL source code (single-file mode)",
+                    },
                     "files": {
                         "type": "object",
                         "description": "Multi-file mode: mapping of filename to source code",
@@ -200,22 +227,38 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Disk mode: path to directory containing HDL source files",
                     },
-                    "top_module":  {"type": "string", "description": "Top-level module name"},
+                    "top_module": {
+                        "type": "string",
+                        "description": "Top-level module name",
+                    },
                     "language": {
                         "type": "string",
                         "enum": ["verilog", "systemverilog", "vhdl"],
                         "default": "verilog",
                         "description": "HDL language variant",
                     },
-                    "target":      {
+                    "target": {
                         "type": "string",
                         "enum": ["ice40", "ecp5", "nexus", "gowin"],
                         "description": "FPGA family",
                     },
-                    "device":      {"type": "string", "description": "Device variant, e.g. 'hx1k', '25k', 'LIFCL-40-9BG400C'"},
-                    "package":     {"type": "string", "description": "Package, e.g. 'tq144', 'CABGA256' (not needed for nexus/gowin)"},
-                    "constraints": {"type": "string", "description": "Optional pin constraints (PCF/LPF/PDC/CST text)"},
-                    "timeout":     {"type": "integer", "default": 300, "description": "PnR timeout in seconds"},
+                    "device": {
+                        "type": "string",
+                        "description": "Device variant, e.g. 'hx1k', '25k', 'LIFCL-40-9BG400C'",
+                    },
+                    "package": {
+                        "type": "string",
+                        "description": "Package, e.g. 'tq144', 'CABGA256' (not needed for nexus/gowin)",
+                    },
+                    "constraints": {
+                        "type": "string",
+                        "description": "Optional pin constraints (PCF/LPF/PDC/CST text)",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "default": 300,
+                        "description": "PnR timeout in seconds",
+                    },
                     "backend": {
                         "type": "string",
                         "enum": ["yosys", "litex"],
@@ -261,15 +304,22 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code":      {"type": "string", "description": "HDL design source"},
-                    "testbench": {"type": "string", "description": "HDL testbench source"},
+                    "code": {"type": "string", "description": "HDL design source"},
+                    "testbench": {
+                        "type": "string",
+                        "description": "HDL testbench source",
+                    },
                     "language": {
                         "type": "string",
                         "enum": ["verilog", "systemverilog", "vhdl"],
                         "default": "verilog",
                         "description": "HDL language variant",
                     },
-                    "timeout":   {"type": "integer", "default": 60, "description": "Timeout in seconds"},
+                    "timeout": {
+                        "type": "integer",
+                        "default": 60,
+                        "description": "Timeout in seconds",
+                    },
                 },
                 "required": ["code", "testbench"],
             },
@@ -293,7 +343,10 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Core name, e.g. 'uart_tx' or 'fifo'"},
+                    "name": {
+                        "type": "string",
+                        "description": "Core name, e.g. 'uart_tx' or 'fifo'",
+                    },
                 },
                 "required": ["name"],
             },
@@ -380,10 +433,13 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Core name, e.g. 'uart_tx' or 'fifo'"},
+                    "name": {
+                        "type": "string",
+                        "description": "Core name, e.g. 'uart_tx' or 'fifo'",
+                    },
                     "parameters": {
                         "type": "object",
-                        "description": "Parameter overrides, e.g. {\"CLKS_PER_BIT\": 434}",
+                        "description": 'Parameter overrides, e.g. {"CLKS_PER_BIT": 434}',
                         "additionalProperties": True,
                     },
                     "instance_name": {
@@ -427,7 +483,10 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "HDL source code to format"},
+                    "code": {
+                        "type": "string",
+                        "description": "HDL source code to format",
+                    },
                     "language": {
                         "type": "string",
                         "enum": ["verilog", "systemverilog", "vhdl"],
@@ -551,7 +610,10 @@ async def handle_list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "build_id": {"type": "string", "description": "Build ID returned by start_build"},
+                    "build_id": {
+                        "type": "string",
+                        "description": "Build ID returned by start_build",
+                    },
                     "tail_lines": {
                         "type": "integer",
                         "default": 30,
@@ -651,7 +713,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "openFPGALoader --board flag (e.g. 'ulx3s', 'tangnano9k')",
                     },
-                    "timeout": {"type": "integer", "default": 60, "description": "Timeout in seconds"},
+                    "timeout": {
+                        "type": "integer",
+                        "default": 60,
+                        "description": "Timeout in seconds",
+                    },
                 },
                 "required": ["target"],
             },
@@ -668,9 +734,11 @@ async def handle_list_tools() -> list[types.Tool]:
 # Tool dispatch
 # ---------------------------------------------------------------------------
 
+
 @app.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
     try:
+        result: dict | list
         match name:
             case "lint_hdl":
                 result = await asyncio.to_thread(
@@ -733,7 +801,8 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                 )
             case "search_github_cores":
                 from registry.github import search_repos
-                result = await asyncio.to_thread(
+
+                result = await asyncio.to_thread(  # type: ignore[arg-type]
                     search_repos,
                     query=arguments["query"],
                     language=arguments.get("language"),
@@ -751,13 +820,11 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
                     registry.import_fusesoc_core, path=arguments["path"]
                 )
             case "list_ip_cores":
-                result = await asyncio.to_thread(
+                result = await asyncio.to_thread(  # type: ignore[arg-type]
                     registry.list_cores, category=arguments.get("category")
                 )
             case "get_ip_core":
-                result = await asyncio.to_thread(
-                    registry.get_core, arguments["name"]
-                )
+                result = await asyncio.to_thread(registry.get_core, arguments["name"])
             case "generate_ip":
                 result = await asyncio.to_thread(
                     registry.generate_ip,
@@ -850,13 +917,20 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
     except KeyError as exc:
         logger.warning("Tool '%s' missing required argument: %s", name, exc)
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=json.dumps({"error": f"Missing required argument: {exc}"}))],
+            content=[
+                types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": f"Missing required argument: {exc}"}),
+                )
+            ],
             isError=True,
         )
     except Exception as exc:
         logger.exception("Unhandled error in tool '%s'", name)
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=json.dumps({"error": str(exc)}))],
+            content=[
+                types.TextContent(type="text", text=json.dumps({"error": str(exc)}))
+            ],
             isError=True,
         )
 
@@ -864,6 +938,7 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 async def _run() -> None:
     async with stdio_server() as (read_stream, write_stream):

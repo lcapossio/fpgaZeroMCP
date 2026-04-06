@@ -13,20 +13,20 @@ from tools.workspace import temporary_workspace
 
 SYNTH_CMDS: dict[str, str] = {
     "generic": "synth",
-    "ice40":   "synth_ice40",
-    "ecp5":    "synth_ecp5",
-    "nexus":   "synth_nexus",
-    "gowin":   "synth_gowin",
-    "xilinx":  "synth_xilinx",
-    "intel":   "synth_intel",
+    "ice40": "synth_ice40",
+    "ecp5": "synth_ecp5",
+    "nexus": "synth_nexus",
+    "gowin": "synth_gowin",
+    "xilinx": "synth_xilinx",
+    "intel": "synth_intel",
 }
 
 _TOP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
 _LANG_EXT = {
-    "verilog":       [".v"],
+    "verilog": [".v"],
     "systemverilog": [".sv"],
-    "vhdl":          [".vhd", ".vhdl"],
+    "vhdl": [".vhd", ".vhdl"],
 }
 
 
@@ -79,7 +79,9 @@ def _validate_filename(fname: str) -> str | None:
     return None
 
 
-def _parse_filelist(filelist_path: str, base_dir: str) -> tuple[list[str], list[str], list[str]]:
+def _parse_filelist(
+    filelist_path: str, base_dir: str
+) -> tuple[list[str], list[str], list[str]]:
     """Parse a files.f / filelist (one path per line, +incdir+, +define+).
 
     Returns (source_files, include_dirs, defines).
@@ -95,18 +97,20 @@ def _parse_filelist(filelist_path: str, base_dir: str) -> tuple[list[str], list[
             if not line or line.startswith("#") or line.startswith("//"):
                 continue
             if line.startswith("+incdir+"):
-                d = line[len("+incdir+"):]
-                incdirs.append(str(Path(base_dir, d).resolve()))
+                inc = line[len("+incdir+") :]
+                incdirs.append(str(Path(base_dir, inc).resolve()))
             elif line.startswith("+define+"):
-                defines.append(line[len("+define+"):])
+                defines.append(line[len("+define+") :])
             elif line.startswith("-f "):
                 # Nested filelist — resolve recursively
                 nested = str(Path(base_dir, line[3:].strip()).resolve())
                 if os.path.isfile(nested):
-                    s, i, d = _parse_filelist(nested, os.path.dirname(nested))
-                    sources.extend(s)
-                    incdirs.extend(i)
-                    defines.extend(d)
+                    nested_srcs, nested_incs, nested_defs = _parse_filelist(
+                        nested, os.path.dirname(nested)
+                    )
+                    sources.extend(nested_srcs)
+                    incdirs.extend(nested_incs)
+                    defines.extend(nested_defs)
             else:
                 sources.append(str(Path(base_dir, line).resolve()))
 
@@ -148,14 +152,17 @@ def _resolve_sources(
             filelist_path = os.path.join(project_dir, filelist_name)
             if os.path.isfile(filelist_path):
                 sources, _incdirs, _defines = _parse_filelist(
-                    filelist_path, project_dir,
+                    filelist_path,
+                    project_dir,
                 )
                 if sources:
                     return sources, None
         # Fallback: glob for HDL files
         found: list[str] = []
         for ext in exts:
-            found.extend(glob.glob(os.path.join(project_dir, "**", f"*{ext}"), recursive=True))
+            found.extend(
+                glob.glob(os.path.join(project_dir, "**", f"*{ext}"), recursive=True)
+            )
         if not found:
             return [], f"No {language} files found in '{project_dir}'"
         return sorted(set(found)), None
@@ -167,7 +174,9 @@ def _resolve_sources(
             fname_err = _validate_filename(fname)
             if fname_err:
                 return [], fname_err
-            if not any(fname.lower().endswith(e) for e in (".v", ".sv", ".vhd", ".vhdl")):
+            if not any(
+                fname.lower().endswith(e) for e in (".v", ".sv", ".vhd", ".vhdl")
+            ):
                 fname = fname + suffix
             fpath = os.path.join(tmpdir, fname)
             # Verify resolved path is still inside tmpdir
@@ -253,12 +262,20 @@ def synthesize(
     """
     if backend == "litex":
         if not litex_board:
-            return {"success": False, "error": "litex_board is required for LiteX backend."}
+            return {
+                "success": False,
+                "error": "litex_board is required for LiteX backend.",
+            }
         from tools.litex import litex_flow
-        result = litex_flow(board=litex_board, args=litex_args or [], timeout=max(timeout, 120))
-        result["backend"] = "litex"
-        result["note"] = "LiteX backend ignores code/top_module and runs board target."
-        return result
+
+        litex_result = litex_flow(
+            board=litex_board, args=litex_args or [], timeout=max(timeout, 120)
+        )
+        litex_result["backend"] = "litex"
+        litex_result["note"] = (
+            "LiteX backend ignores code/top_module and runs board target."
+        )
+        return litex_result
 
     synth_cmd = SYNTH_CMDS.get(target, "synth")
     if top_module:
@@ -273,7 +290,7 @@ def synthesize(
         if err:
             return {"success": False, "error": err}
 
-        out_json  = os.path.join(tmpdir, "synth.json")
+        out_json = os.path.join(tmpdir, "synth.json")
         ys_script = os.path.join(tmpdir, "synth.ys")
         out_json_yosys = out_json.replace("\\", "/")
 
@@ -287,7 +304,9 @@ def synthesize(
             for filelist_name in ("files.f", "sources.f"):
                 filelist_path = os.path.join(project_dir, filelist_name)
                 if os.path.isfile(filelist_path):
-                    _, fl_incdirs, fl_defines = _parse_filelist(filelist_path, project_dir)
+                    _, fl_incdirs, fl_defines = _parse_filelist(
+                        filelist_path, project_dir
+                    )
                     include_dirs.extend(fl_incdirs)
                     defines.extend(fl_defines)
                     break
@@ -323,7 +342,10 @@ def synthesize(
         try:
             result = subprocess.run(
                 ["yosys", "-s", ys_script],
-                capture_output=True, text=True, errors="replace", timeout=timeout,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
             )
 
             modules: list[str] = []
@@ -352,6 +374,12 @@ def synthesize(
             return output
 
         except FileNotFoundError:
-            return {"success": False, "error": "'yosys' not found. Install it and ensure it is on PATH."}
+            return {
+                "success": False,
+                "error": "'yosys' not found. Install it and ensure it is on PATH.",
+            }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Synthesis timed out after {timeout} s."}
+            return {
+                "success": False,
+                "error": f"Synthesis timed out after {timeout} s.",
+            }

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 """Flash a bitstream to an FPGA board using iceprog or openFPGALoader."""
+
 from __future__ import annotations
 
 import base64
@@ -13,7 +14,7 @@ from tools.errors import err, TOOL_NOT_FOUND, TIMEOUT, INVALID_INPUT
 # Default programmer per target
 _DEFAULT_PROGRAMMER = {
     "ice40": "iceprog",
-    "ecp5":  "openFPGALoader",
+    "ecp5": "openFPGALoader",
     "nexus": "openFPGALoader",
     "gowin": "openFPGALoader",
 }
@@ -36,7 +37,9 @@ def program_fpga(
     if not bitstream_b64 and not bitstream_path:
         return err(INVALID_INPUT, "Provide either bitstream_b64 or bitstream_path.")
     if bitstream_b64 and bitstream_path:
-        return err(INVALID_INPUT, "Provide only one of bitstream_b64 or bitstream_path.")
+        return err(
+            INVALID_INPUT, "Provide only one of bitstream_b64 or bitstream_path."
+        )
 
     prog = programmer or _DEFAULT_PROGRAMMER.get(target, "openFPGALoader")
 
@@ -61,7 +64,11 @@ def program_fpga(
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, errors="replace", timeout=timeout,
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
             )
         except FileNotFoundError:
             return err(TOOL_NOT_FOUND, f"'{prog}' not found. Install OSS CAD Suite.")
