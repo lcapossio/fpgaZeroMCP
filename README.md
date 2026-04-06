@@ -5,14 +5,28 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![MCP](https://img.shields.io/badge/MCP-compatible-green)
 
-An open-source [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI assistants a complete FPGA toolchain — lint, simulate, synthesize, place-and-route, and a live IP core registry backed by GitHub.
+An open-source [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI assistants a complete FPGA toolchain — lint, simulate, synthesize, place-and-route, program the bitstream, and a live IP core registry backed by GitHub.
 
-Ask your AI to search for cores, pull them in, lint HDL, synthesize a design, or run a simulation — all without leaving your chat window.
+Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file VHDL or Verilog project from disk, run a simulation, then flash the bitstream to your board — all without leaving your chat window.
+
+## Features
+
+- **Multi-language**: Verilog, SystemVerilog, and VHDL (via ghdl-yosys-plugin)
+- **Three input modes**: inline `code` string, multi-file `files` dict, or `project_dir` path on disk
+- **Filelist support**: `files.f`/`sources.f` with `+incdir+`, `+define+`, and nested `-f` directives
+- **Board presets**: 11 built-in boards (iCEBreaker, ULX3S, TinyFPGA BX, Tang Nano, etc.) — sets target/device/package/clock automatically
+- **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst` in your project directory
+- **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus)
+- **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
+- **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
+- **IP core registry**: live search and import from GitHub with FuseSoC CAPI2 metadata
+- **Health check**: discover which OSS CAD Suite tools are installed and reachable
 
 ---
 
 ## Table of Contents
 
+- [Features](#features)
 - [How it works](#how-it-works)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -131,11 +145,13 @@ Add to your MCP settings (Settings → MCP Servers):
 ### Example prompts
 
 - *"Find me an I2C master core and import it."*
-- *"Synthesize this design for ECP5 and tell me the LUT count."*
-- *"Run place-and-route on this module targeting an iCE40 HX1K in a TQ144 package."*
+- *"Synthesize the VHDL files in ~/projects/my_fpga and tell me the LUT count."*
+- *"PnR my project for the iCEBreaker board, then flash it."*
+- *"Run place-and-route with seed 42 to try for better timing."*
 - *"Lint this Verilog and fix any errors."*
-- *"Simulate this FIFO with a testbench that writes 4 bytes then reads them back."*
+- *"Simulate this FIFO and tell me whether the testbench passed."*
 - *"Format this SystemVerilog file."*
+- *"Which OSS CAD Suite tools do I have installed?"*
 
 ---
 
@@ -154,9 +170,11 @@ Add to your MCP settings (Settings → MCP Servers):
 
 | Tool | Description |
 |---|---|
-| `simulate` | Compile and run testbenches — Icarus Verilog (V/SV) or GHDL (VHDL) |
-| `synthesize` | Yosys synthesis with resource stats — see [targets](#synthesis-targets) |
-| `place_and_route` | Yosys + nextpnr in one step — returns max frequency, critical path, utilization |
+| `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Returns verdict + VCD summary |
+| `synthesize` | Yosys synthesis with resource stats. Accepts `code`, `files`, or `project_dir`. Verilog, SV, VHDL |
+| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream output |
+| `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
+| `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
 
 ### IP core registry
 
@@ -181,10 +199,18 @@ Add to your MCP settings (Settings → MCP Servers):
 
 | Tool | Description |
 |---|---|
-| `start_build` | Start a long-running command in the background, returns a `build_id` |
-| `build_status` | Check progress — status, elapsed time, recent log output |
+| `start_build` | Start a long-running command in the background (allowlisted EDA tools only) |
+| `build_status` | Check progress — status, elapsed time, parsed phase/utilization/timing |
 | `list_builds` | List all tracked builds (running and finished) |
 | `cancel_build` | Kill a running background build |
+| `cleanup_build_logs` | Delete old build logs by age and total size |
+
+### Server / registry
+
+| Tool | Description |
+|---|---|
+| `check_tools` | Report which OSS CAD Suite tools are installed, with paths and versions |
+| `reload_registry` | Re-scan core directories without restarting the server |
 
 ---
 
@@ -336,6 +362,7 @@ Some tests require OSS CAD Suite tools on PATH. Tests that need missing tools ar
 | `USERCORES_PATH` | Extra core search directories (OS path separator delimited) |
 | `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
 | `FPGAZERO_TMPDIR` | Override temporary workspace root directory |
+| `FPGAZERO_ALLOWED_DIRS` | OS pathsep-separated list of extra directories that `project_dir` may read from (in addition to cwd and `$HOME`) |
 
 ---
 

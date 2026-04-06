@@ -21,6 +21,8 @@ env/
 *.blif
 *.edif
 *.asc
+*.cf
+work-obj*.cf
 
 # IDE
 .vscode/
