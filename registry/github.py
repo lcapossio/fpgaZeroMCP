@@ -6,9 +6,10 @@ import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
-
-import httpx
 
 LOG = logging.getLogger(__name__)
 
@@ -17,6 +18,19 @@ _MAX_RETRIES = 3
 
 GITHUB_API = "https://api.github.com"
 GITHUB_RAW = "https://raw.githubusercontent.com"
+
+
+class HTTPStatusError(Exception):
+    """Raised for non-retryable 4xx/5xx HTTP responses."""
+
+    def __init__(self, code: int, body: str) -> None:
+        super().__init__(f"HTTP {code}: {body[:200]}")
+        self.code = code
+        self.body = body
+
+
+class TransportError(Exception):
+    """Raised when a request fails at the transport layer (connection, DNS, timeout)."""
 
 
 def _build_headers() -> dict[str, str]:
@@ -92,38 +106,60 @@ _CATEGORY_KEYWORDS = {
 # ---------------------------------------------------------------------------
 
 
-def _request(
+def _request_text(
     url: str,
     *,
     params: dict | None = None,
     headers: dict | None = None,
     timeout: int = 15,
-) -> httpx.Response:
-    """HTTP GET with retry and exponential backoff for transient errors."""
+) -> str:
+    """HTTP GET returning response body text. Retries transient errors with backoff.
+
+    Raises HTTPStatusError for non-retryable 4xx/5xx, TransportError for
+    connection-layer failures.
+    """
     hdrs = headers or _HEADERS
-    last_exc: Exception | None = None
+    if params:
+        url = f"{url}?{urllib.parse.urlencode(params)}"
+
+    last_transport_err: Exception | None = None
     for attempt in range(_MAX_RETRIES):
+        req = urllib.request.Request(url, headers=hdrs, method="GET")
         try:
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.get(url, headers=hdrs, params=params)
-                if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
-                    delay = 2**attempt
-                    LOG.debug("GitHub %d, retrying in %ds", resp.status_code, delay)
-                    time.sleep(delay)
-                    continue
-                resp.raise_for_status()
-                return resp
-        except httpx.TransportError as exc:
-            last_exc = exc
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            # HTTPError is a subclass of URLError; status codes land here.
+            if exc.code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                delay = 2**attempt
+                LOG.debug("GitHub %d, retrying in %ds", exc.code, delay)
+                time.sleep(delay)
+                continue
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            raise HTTPStatusError(exc.code, body) from exc
+        except urllib.error.URLError as exc:
+            last_transport_err = exc
             if attempt < _MAX_RETRIES - 1:
                 time.sleep(2**attempt)
                 continue
-            raise
-    raise last_exc  # type: ignore[misc]
+            raise TransportError(str(exc)) from exc
+        except TimeoutError as exc:
+            last_transport_err = exc
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(2**attempt)
+                continue
+            raise TransportError(f"Request timed out: {exc}") from exc
+
+    # Defensive — should not be reached
+    raise TransportError(str(last_transport_err) if last_transport_err else "unknown")
 
 
 def _get(url: str, params: dict | None = None) -> dict | list:
-    return _request(url, params=params).json()
+    return json.loads(_request_text(url, params=params))
 
 
 def _get_dict(url: str, params: dict | None = None) -> dict:
@@ -135,12 +171,13 @@ def _get_dict(url: str, params: dict | None = None) -> dict:
 
 
 def _download_raw(owner: str, repo: str, path: str, ref: str) -> str:
+    # raw.githubusercontent.com doesn't need auth headers for public repos.
     url = f"{GITHUB_RAW}/{owner}/{repo}/{ref}/{path}"
-    return _request(
+    return _request_text(
         url,
         headers={"User-Agent": "fpgaZeroMCP/0.1"},
         timeout=30,
-    ).text
+    )
 
 
 def _fetch_tree(owner: str, repo: str, ref: str) -> list[dict]:
@@ -216,11 +253,9 @@ def search_repos(
                 "per_page": min(max_results, 30),
             },
         )
-    except httpx.HTTPStatusError as e:
-        return [
-            {"error": f"GitHub API error {e.response.status_code}: {e.response.text}"}
-        ]
-    except httpx.TransportError as e:
+    except HTTPStatusError as e:
+        return [{"error": f"GitHub API error {e.code}: {e.body}"}]
+    except TransportError as e:
         return [{"error": f"GitHub API connection error: {e}"}]
 
     results = []
@@ -259,8 +294,8 @@ def import_core(
     # Repo metadata
     try:
         meta = _get_dict(f"{GITHUB_API}/repos/{owner}/{repo}")
-    except httpx.HTTPStatusError as e:
-        return {"error": f"GitHub API {e.response.status_code}: {e.response.text}"}
+    except HTTPStatusError as e:
+        return {"error": f"GitHub API {e.code}: {e.body}"}
     except Exception as e:
         return {"error": str(e)}
 

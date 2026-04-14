@@ -12,13 +12,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
-
 HDL_EXTS = {".v": "verilog", ".sv": "systemverilog", ".vhd": "vhdl", ".vhdl": "vhdl"}
 
 
 def _parse_capi2(content: str) -> dict:
     """Strip the CAPI=2: header line and parse the remaining YAML."""
+    # Lazy-import yaml: only loaded when a FuseSoC .core file is actually parsed.
+    # Saves ~2 MB for sessions that never import FuseSoC cores.
+    import yaml  # type: ignore[import-untyped]
+
     lines = content.splitlines()
     if lines and lines[0].startswith("CAPI="):
         lines = lines[1:]
@@ -110,7 +112,9 @@ def capi2_to_manifest_dict(
     """
     try:
         data = _parse_capi2(content)
-    except yaml.YAMLError:
+    except Exception:
+        # yaml.YAMLError is the expected case, but we also catch ImportError
+        # if pyyaml is not installed, or any other parse failure.
         return None
 
     if not data:

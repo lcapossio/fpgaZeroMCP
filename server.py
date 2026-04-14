@@ -7,13 +7,11 @@ import functools
 import json
 import logging
 
-import mcp.types as types
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
+from mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP")
+app = Server("fpgaZeroMCP", version="0.3.0")
 
 
 # Lazy singletons — CoreRegistry does disk I/O and BuildManager allocates a
@@ -53,9 +51,9 @@ def _clamp_timeout(value: int, default: int) -> int:
 
 
 @app.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
+async def handle_list_tools() -> list[Tool]:
     return [
-        types.Tool(
+        Tool(
             name="lint_hdl",
             description=(
                 "Lint HDL source code using iverilog/verilator (Verilog/SystemVerilog) or ghdl (VHDL). "
@@ -88,7 +86,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["code"],
             },
         ),
-        types.Tool(
+        Tool(
             name="lint_project",
             description=(
                 "Lint multiple HDL files together so cross-module references resolve. "
@@ -132,7 +130,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["files"],
             },
         ),
-        types.Tool(
+        Tool(
             name="synthesize",
             description=(
                 "Synthesize HDL (Verilog, SystemVerilog, or VHDL) using Yosys or run LiteX backend. "
@@ -205,7 +203,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["top_module"],
             },
         ),
-        types.Tool(
+        Tool(
             name="place_and_route",
             description=(
                 "Synthesize HDL with Yosys then place-and-route with nextpnr in one step. "
@@ -303,7 +301,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["top_module"],
             },
         ),
-        types.Tool(
+        Tool(
             name="simulate",
             description=(
                 "Compile and simulate HDL using Icarus Verilog (iverilog + vvp) or GHDL (VHDL). "
@@ -333,7 +331,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["code", "testbench"],
             },
         ),
-        types.Tool(
+        Tool(
             name="list_ip_cores",
             description="List all available IP cores in the registry. Optionally filter by category.",
             inputSchema={
@@ -346,7 +344,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
             },
         ),
-        types.Tool(
+        Tool(
             name="get_ip_core",
             description="Fetch the full manifest and HDL source files for a named IP core.",
             inputSchema={
@@ -360,7 +358,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["name"],
             },
         ),
-        types.Tool(
+        Tool(
             name="search_github_cores",
             description=(
                 "Search GitHub for open-source FPGA IP cores (MIT, BSD, Apache, GPL, etc). "
@@ -388,7 +386,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["query"],
             },
         ),
-        types.Tool(
+        Tool(
             name="import_github_core",
             description=(
                 "Download an open-source GitHub repository and add it to the local IP core registry. "
@@ -414,7 +412,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["repo"],
             },
         ),
-        types.Tool(
+        Tool(
             name="import_fusesoc_core",
             description=(
                 "Import a local FuseSoC CAPI2 .core file into the registry. "
@@ -432,7 +430,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["path"],
             },
         ),
-        types.Tool(
+        Tool(
             name="generate_ip",
             description=(
                 "Generate a parameterized instance of an IP core. "
@@ -459,7 +457,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["name"],
             },
         ),
-        types.Tool(
+        Tool(
             name="get_diagnostics",
             description=(
                 "Return structured lint diagnostics (line, column, severity, message) for HDL source. "
@@ -481,7 +479,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["code"],
             },
         ),
-        types.Tool(
+        Tool(
             name="format_hdl",
             description=(
                 "Format HDL source code and return the result. "
@@ -506,7 +504,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["code"],
             },
         ),
-        types.Tool(
+        Tool(
             name="litex_build",
             description=(
                 "Run LiteX board target with --build. "
@@ -534,7 +532,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["board"],
             },
         ),
-        types.Tool(
+        Tool(
             name="litex_soc",
             description=(
                 "Generate LiteX SoC without building gateware. "
@@ -562,7 +560,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["board"],
             },
         ),
-        types.Tool(
+        Tool(
             name="litex_flow",
             description="Run a generic LiteX board target with caller-provided args.",
             inputSchema={
@@ -583,7 +581,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["board"],
             },
         ),
-        types.Tool(
+        Tool(
             name="start_build",
             description=(
                 "Start a long-running build command in the background. "
@@ -610,7 +608,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["cmd"],
             },
         ),
-        types.Tool(
+        Tool(
             name="build_status",
             description=(
                 "Check the progress of a background build. "
@@ -637,12 +635,12 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["build_id"],
             },
         ),
-        types.Tool(
+        Tool(
             name="list_builds",
             description="List all tracked builds (running and finished) with status summary.",
             inputSchema={"type": "object", "properties": {}},
         ),
-        types.Tool(
+        Tool(
             name="cancel_build",
             description="Cancel a running background build.",
             inputSchema={
@@ -653,7 +651,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["build_id"],
             },
         ),
-        types.Tool(
+        Tool(
             name="check_tools",
             description=(
                 "Check which EDA tools are installed and reachable. "
@@ -661,7 +659,7 @@ async def handle_list_tools() -> list[types.Tool]:
             ),
             inputSchema={"type": "object", "properties": {}},
         ),
-        types.Tool(
+        Tool(
             name="reload_registry",
             description=(
                 "Re-scan all core directories and rebuild the IP core cache. "
@@ -669,7 +667,7 @@ async def handle_list_tools() -> list[types.Tool]:
             ),
             inputSchema={"type": "object", "properties": {}},
         ),
-        types.Tool(
+        Tool(
             name="cleanup_build_logs",
             description=(
                 "Delete old build logs to reclaim disk space. "
@@ -691,7 +689,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
             },
         ),
-        types.Tool(
+        Tool(
             name="program_fpga",
             description=(
                 "Flash a bitstream to an FPGA board using iceprog (ice40) or openFPGALoader (ecp5/gowin/nexus). "
@@ -731,7 +729,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["target"],
             },
         ),
-        types.Tool(
+        Tool(
             name="list_boards",
             description="List all known FPGA board presets with target, device, package, and clock frequency.",
             inputSchema={"type": "object", "properties": {}},
@@ -745,7 +743,7 @@ async def handle_list_tools() -> list[types.Tool]:
 
 
 @app.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
+async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
     try:
         result: dict | list
         match name:
@@ -948,16 +946,16 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
 
         text = json.dumps(result, indent=2)
         is_err = isinstance(result, dict) and "error" in result
-        return types.CallToolResult(
-            content=[types.TextContent(type="text", text=text)],
+        return CallToolResult(
+            content=[TextContent(type="text", text=text)],
             isError=is_err,
         )
 
     except KeyError as exc:
         logger.warning("Tool '%s' missing required argument: %s", name, exc)
-        return types.CallToolResult(
+        return CallToolResult(
             content=[
-                types.TextContent(
+                TextContent(
                     type="text",
                     text=json.dumps({"error": f"Missing required argument: {exc}"}),
                 )
@@ -966,10 +964,8 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
         )
     except Exception as exc:
         logger.exception("Unhandled error in tool '%s'", name)
-        return types.CallToolResult(
-            content=[
-                types.TextContent(type="text", text=json.dumps({"error": str(exc)}))
-            ],
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps({"error": str(exc)}))],
             isError=True,
         )
 
@@ -979,13 +975,8 @@ async def handle_call_tool(name: str, arguments: dict) -> types.CallToolResult:
 # ---------------------------------------------------------------------------
 
 
-async def _run() -> None:
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
-
-
 def main() -> None:
-    asyncio.run(_run())
+    asyncio.run(app.run())
 
 
 if __name__ == "__main__":

@@ -354,6 +354,27 @@ Some tests require OSS CAD Suite tools on PATH. Tests that need missing tools ar
 
 ---
 
+## Reducing Memory Footprint
+
+The server runs as a 1-process-per-session subprocess under stdio transport (this is how MCP clients like Claude Desktop launch it). Each session takes ~60-90 MB RSS idle on Linux, mostly from the Python interpreter and dependencies.
+
+If you run many concurrent MCP sessions, set these environment variables before launching your MCP client:
+
+```bash
+# Linux — reduces glibc malloc arena fragmentation (can save 10-20 MB per session)
+export MALLOC_ARENA_MAX=2
+
+# Strip bytecode position annotations from tracebacks (saves a few MB)
+export PYTHONNODEBUGRANGES=1
+
+# Skip .pyc cache files (no memory impact, avoids disk writes)
+export PYTHONDONTWRITEBYTECODE=1
+```
+
+These are zero-code changes and fully transparent.
+
+---
+
 ## Environment Variables
 
 | Variable | Description |
