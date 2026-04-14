@@ -7,6 +7,8 @@ import server
 
 
 def test_handle_call_tool_uses_to_thread(monkeypatch) -> None:
+    import tools.lint as tools_lint
+
     called = []
 
     async def fake_to_thread(func, *args, **kwargs):
@@ -17,7 +19,7 @@ def test_handle_call_tool_uses_to_thread(monkeypatch) -> None:
         return {"ok": True}
 
     monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
-    monkeypatch.setattr(server, "lint_hdl", fake_lint_hdl)
+    monkeypatch.setattr(tools_lint, "lint_hdl", fake_lint_hdl)
 
     result = asyncio.run(
         server.handle_call_tool("lint_hdl", {"code": "module m; endmodule"})
