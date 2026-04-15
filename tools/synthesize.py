@@ -317,7 +317,9 @@ def synthesize(
                         include_dirs.append(root)
 
         # _yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
-        read_cmds = _yosys_read_cmds(src_paths, language, top_module, include_dirs)
+        read_cmds = _yosys_read_cmds(
+            src_paths, language, top_module, include_dirs, defines
+        )
 
         # ghdl-yosys-plugin lowercases VHDL entity names during import
         yosys_top = top_module.lower() if language == "vhdl" else top_module

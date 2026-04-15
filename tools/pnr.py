@@ -157,18 +157,34 @@ def place_and_route(
         out_file = os.path.join(tmpdir, f"out{OUTPUT_EXT[target]}")
         cst_file = os.path.join(tmpdir, f"constraints{CONSTRAINTS_EXT[target]}")
 
-        # Auto-detect include directories from project_dir
+        # Auto-detect include directories and defines from project_dir
         include_dirs: list[str] = []
+        defines: list[str] = []
         if project_dir:
+            from tools.synthesize import _parse_filelist
+
             resolved_proj = str(Path(project_dir).resolve())
             include_dirs.append(resolved_proj)
+            # Check filelist for +incdir+ and +define+ directives
+            for filelist_name in ("files.f", "sources.f"):
+                filelist_path = os.path.join(project_dir, filelist_name)
+                if os.path.isfile(filelist_path):
+                    _, fl_incdirs, fl_defines = _parse_filelist(
+                        filelist_path, project_dir
+                    )
+                    include_dirs.extend(fl_incdirs)
+                    defines.extend(fl_defines)
+                    break
+            # Also add subdirectories with header files
             for root, _dirs, fnames in os.walk(resolved_proj):
                 if any(f.endswith((".vh", ".svh")) for f in fnames):
-                    if root != resolved_proj:
+                    if root not in include_dirs:
                         include_dirs.append(root)
 
         # _yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
-        read_cmds = _yosys_read_cmds(src_paths, language, top_module, include_dirs)
+        read_cmds = _yosys_read_cmds(
+            src_paths, language, top_module, include_dirs, defines
+        )
         netlist_yosys = netlist_json.replace("\\", "/")
 
         # ghdl-yosys-plugin lowercases VHDL entity names during import
