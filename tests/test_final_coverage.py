@@ -25,9 +25,15 @@ import pytest
 
 
 @pytest.fixture
-def scratch_dir():
-    """Yield a temp directory and clean up. Avoids pytest-qt `tmp_path` conflict."""
+def scratch_dir(monkeypatch):
+    """Yield a temp directory and clean up. Avoids pytest-qt `tmp_path` conflict.
+
+    Also whitelists the scratch path in FPGAZERO_ALLOWED_DIRS so tests that
+    pass it as `project_dir` aren't rejected by the security check on Linux
+    (where /tmp is outside both cwd and $HOME).
+    """
     path = tempfile.mkdtemp(prefix="pytest_final_")
+    monkeypatch.setenv("FPGAZERO_ALLOWED_DIRS", path)
     try:
         yield Path(path)
     finally:
