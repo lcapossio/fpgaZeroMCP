@@ -170,6 +170,41 @@ def _validate_work_dir(work_dir: str | None) -> str | None:
         return f"Invalid work_dir: {exc}"
 
 
+def _terminate_tree(proc: subprocess.Popen) -> None:
+    """Terminate a build process and all of its children.
+
+    On Windows, proc.terminate() kills only the immediate child, leaving
+    grandchildren (yosys/nextpnr spawned by a LiteX build) running; taskkill /T
+    takes down the tree. On POSIX the build runs in its own session, so the
+    process group can be signalled as a whole.
+    """
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            capture_output=True,
+        )
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return
+
+    import signal
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.wait(timeout=5)
+
+
 class BuildManager:
     """Manages background builds with log capture and status queries."""
 
@@ -203,6 +238,15 @@ class BuildManager:
         if env:
             proc_env.update(env)
 
+        # Run the build in its own process group/session so cancel() can
+        # terminate the whole tree (e.g. LiteX spawning yosys/nextpnr), not
+        # just the immediate child.
+        popen_kwargs: dict = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+
         try:
             log_file = open(log_path, "w", encoding="utf-8")
             proc = subprocess.Popen(
@@ -211,6 +255,7 @@ class BuildManager:
                 stderr=subprocess.STDOUT,
                 cwd=cwd,
                 env=proc_env,
+                **popen_kwargs,
             )
         except FileNotFoundError:
             log_file.close()
@@ -281,11 +326,7 @@ class BuildManager:
         proc = record._process
         if proc is None:
             return {"error": f"Build '{build_id}' has no associated process."}
-        try:
-            proc.terminate()
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _terminate_tree(proc)
         record.returncode = proc.returncode
         record.end_time = time.time()
 
