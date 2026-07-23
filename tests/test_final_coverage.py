@@ -105,7 +105,7 @@ class TestMcpLiteRunLoop:
         from mcp_lite import Server
 
         srv = Server("test")
-        # Malformed, then a valid ping. The malformed line should be logged and skipped.
+        # Malformed line gets a JSON-RPC parse error; the valid ping still works.
         fake_stdin = io.StringIO(
             'not valid json\n{"jsonrpc": "2.0", "id": 8, "method": "ping"}\n'
         )
@@ -114,10 +114,12 @@ class TestMcpLiteRunLoop:
         monkeypatch.setattr(sys, "stdout", fake_stdout)
 
         asyncio.run(srv.run())
-        # Only the valid message should produce output
         lines = [line for line in fake_stdout.getvalue().splitlines() if line.strip()]
-        assert len(lines) == 1
-        assert json.loads(lines[0])["id"] == 8
+        assert len(lines) == 2
+        parse_err = json.loads(lines[0])
+        assert parse_err["error"]["code"] == -32700
+        assert parse_err["id"] is None
+        assert json.loads(lines[1])["id"] == 8
 
     def test_run_loop_does_not_write_for_notifications(self, monkeypatch) -> None:
         from mcp_lite import Server

@@ -8,6 +8,8 @@ Implements the subset of the Model Context Protocol we need:
   - tools/call
 
 Wire format: JSON-RPC 2.0 over newline-delimited stdio. One message per line.
+Requests are dispatched concurrently: a slow tool call does not block ping,
+tools/list, or further tool calls.
 
 This replaces the official `mcp` SDK (which pulls pydantic, httpx, anyio,
 pydantic_settings — tens of megabytes of transitive deps) with ~200 lines
@@ -198,8 +200,28 @@ class Server:
     # Transport — newline-delimited JSON over stdio
     # ------------------------------------------------------------------
 
+    def _send(self, response: dict) -> None:
+        """Write one response line to stdout.
+
+        Called only from coroutines on the event loop thread, with no await
+        between write and flush, so concurrent requests cannot interleave
+        their output.
+        """
+        sys.stdout.write(json.dumps(response) + "\n")
+        sys.stdout.flush()
+
+    async def _handle_message(self, message: dict) -> None:
+        response = await self._dispatch(message)
+        if response is not None:
+            self._send(response)
+
     async def run(self) -> None:
-        """Read JSON-RPC messages from stdin, dispatch, write responses to stdout."""
+        """Read JSON-RPC messages from stdin, dispatch, write responses to stdout.
+
+        Each request is dispatched as its own task, so fast requests (ping,
+        build_status, cancel_build) are answered while a slow tool call
+        (synthesize, place_and_route) is still running.
+        """
         loop = asyncio.get_running_loop()
 
         # asyncio doesn't wrap stdin/stdout as streams on Windows cleanly.
@@ -207,11 +229,13 @@ class Server:
         def _read_line() -> str:
             return sys.stdin.readline()
 
+        pending: set[asyncio.Task] = set()
+
         while True:
             line = await loop.run_in_executor(None, _read_line)
             if not line:
                 # EOF — client disconnected
-                return
+                break
             line = line.strip()
             if not line:
                 continue
@@ -219,12 +243,16 @@ class Server:
                 message = json.loads(line)
             except json.JSONDecodeError as exc:
                 logger.warning("Malformed JSON from client: %s", exc)
+                self._send(self._make_error(None, -32700, f"Parse error: {exc}"))
                 continue
 
-            response = await self._dispatch(message)
-            if response is not None:
-                sys.stdout.write(json.dumps(response) + "\n")
-                sys.stdout.flush()
+            task = asyncio.create_task(self._handle_message(message))
+            pending.add(task)
+            task.add_done_callback(pending.discard)
+
+        # Let in-flight requests finish before shutting down.
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 # Tool, TextContent, CallToolResult are the only types server.py uses.
