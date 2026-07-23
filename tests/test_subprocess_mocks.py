@@ -102,8 +102,9 @@ class TestLspDiagnostics:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         get_diagnostics("module top; endmodule", language="systemverilog")
-        # SV mode should include -g2012
-        assert "-g2012" in captured[0]
+        # SV mode should use Verilator's --sv switch, not iverilog's -g2012
+        assert "--sv" in captured[0]
+        assert "-g2012" not in captured[0]
 
     def test_verilator_missing_falls_back_to_verible(self, monkeypatch) -> None:
         from tools.lsp import get_diagnostics

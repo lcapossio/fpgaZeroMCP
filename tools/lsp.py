@@ -81,7 +81,8 @@ def format_hdl(code: str, language: str = "verilog") -> dict:
 
 
 def _verilator_diagnostics(tmpfile: str, language: str) -> dict:
-    flags = ["-g2012"] if language == "systemverilog" else []
+    # -g2012 is an iverilog flag; Verilator's SystemVerilog switch is --sv
+    flags = ["--sv"] if language == "systemverilog" else []
     try:
         r = subprocess.run(
             ["verilator", "--lint-only", "--error-limit", "50"] + flags + [tmpfile],
