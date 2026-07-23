@@ -54,19 +54,24 @@ def _allowed_project_roots() -> list[Path]:
     return roots
 
 
-def _validate_project_dir(project_dir: str) -> str | None:
-    """Return an error string if project_dir is outside all allowed roots."""
+def validate_path_in_roots(path: str, label: str) -> str | None:
+    """Return an error string if path is outside all allowed roots."""
     try:
-        resolved = Path(project_dir).resolve()
+        resolved = Path(path).resolve()
         for root in _allowed_project_roots():
             if resolved.is_relative_to(root):
                 return None
         return (
-            f"project_dir is outside allowed directories. "
+            f"{label} is outside allowed directories. "
             f"Got: {resolved}. Set FPGAZERO_ALLOWED_DIRS to add more roots."
         )
     except (OSError, ValueError) as exc:
-        return f"Invalid project_dir: {exc}"
+        return f"Invalid {label}: {exc}"
+
+
+def _validate_project_dir(project_dir: str) -> str | None:
+    """Return an error string if project_dir is outside all allowed roots."""
+    return validate_path_in_roots(project_dir, "project_dir")
 
 
 def _validate_filename(fname: str) -> str | None:

@@ -119,6 +119,17 @@ _ALLOWED_COMMANDS = {
 _PYTHON_PREFIX = "python"
 
 
+def _allowed_work_roots() -> list[Path]:
+    roots = [Path.cwd().resolve(), Path.home().resolve()]
+    env_dirs = os.environ.get("FPGAZERO_ALLOWED_DIRS", "").strip()
+    if env_dirs:
+        for dirname in env_dirs.split(os.pathsep):
+            dirname = dirname.strip()
+            if dirname:
+                roots.append(Path(dirname).resolve())
+    return roots
+
+
 def _validate_build_cmd(cmd: list[str]) -> str | None:
     """Return an error string if cmd is not in the allowlist, else None."""
     if not cmd:
@@ -140,6 +151,25 @@ def _validate_build_cmd(cmd: list[str]) -> str | None:
     return None
 
 
+def _validate_work_dir(work_dir: str | None) -> str | None:
+    """Return an error string if work_dir is outside allowed filesystem roots."""
+    if not work_dir:
+        return None
+    try:
+        resolved = Path(work_dir).resolve()
+        if not resolved.is_dir():
+            return f"work_dir does not exist or is not a directory: {work_dir}"
+        for root in _allowed_work_roots():
+            if resolved.is_relative_to(root):
+                return None
+        return (
+            f"work_dir is outside allowed directories. "
+            f"Got: {resolved}. Set FPGAZERO_ALLOWED_DIRS to add more roots."
+        )
+    except (OSError, ValueError) as exc:
+        return f"Invalid work_dir: {exc}"
+
+
 class BuildManager:
     """Manages background builds with log capture and status queries."""
 
@@ -156,6 +186,9 @@ class BuildManager:
     ) -> dict:
         """Start a build subprocess in the background. Returns build info."""
         err = _validate_build_cmd(cmd)
+        if err:
+            return {"success": False, "error": err}
+        err = _validate_work_dir(work_dir)
         if err:
             return {"success": False, "error": err}
 

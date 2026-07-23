@@ -12,6 +12,7 @@ from pathlib import Path
 from tools.boards import get_board_preset
 from tools.synthesize import (
     SYNTH_CMDS,
+    validate_path_in_roots,
     validate_top_module,
     _resolve_sources,
     _yosys_read_cmds,
@@ -144,6 +145,9 @@ def place_and_route(
     persistent_dir: str = ""
     if use_persistent:
         assert work_dir is not None
+        path_err = validate_path_in_roots(work_dir, "work_dir")
+        if path_err:
+            return {"success": False, "error": path_err}
         os.makedirs(work_dir, exist_ok=True)
         persistent_dir = work_dir
 

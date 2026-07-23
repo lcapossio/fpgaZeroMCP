@@ -766,6 +766,13 @@ class TestBuildManager:
         assert result["success"] is False
         assert "must use '-m <module>'" in result["error"]
 
+    def test_missing_work_dir_rejected(self) -> None:
+        mgr = BuildManager()
+        missing = _mk_tmp_dir() / "missing"
+        result = mgr.start(cmd=["iverilog", "-V"], work_dir=str(missing))
+        assert result["success"] is False
+        assert "work_dir does not exist" in result["error"]
+
     def test_clear_finished(self) -> None:
         mgr = BuildManager()
         cmd = self._allowed_cmd()
