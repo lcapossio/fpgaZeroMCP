@@ -65,7 +65,7 @@ tools/
   workspace.py         Temporary workspace context manager
   *.md                 Per-tool documentation
 registry/
-  manifest.py          Pydantic schema for core.json
+  manifest.py          Dataclass schema and validation for core.json
   resolver.py          Loads cores/, serves list/get/generate/import
   github.py            GitHub search + download with retry logic
   fusesoc.py           FuseSoC CAPI2 parser
