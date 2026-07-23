@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,11 +45,7 @@ from server import _clamp_timeout
 
 
 def _mk_tmp_dir() -> Path:
-    base = Path("no_commit") / "pytest_tmp"
-    base.mkdir(parents=True, exist_ok=True)
-    d = base / f"err_{uuid4().hex}"
-    d.mkdir()
-    return d
+    return Path(tempfile.mkdtemp(prefix=f"err_{uuid4().hex}_"))
 
 
 # ---------------------------------------------------------------------------

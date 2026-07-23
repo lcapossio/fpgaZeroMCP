@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Leonardo Capossio (bard0) <hello@bard0.com>
 # SPDX-License-Identifier: MIT
 import json
-import shutil
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -41,13 +41,7 @@ def _write_core(tmp_path: Path) -> None:
 
 
 def _mk_tmp_dir() -> Path:
-    base = Path("no_commit") / "pytest_tmp"
-    base.mkdir(parents=True, exist_ok=True)
-    d = base / f"reg_{uuid4().hex}"
-    if d.exists():
-        shutil.rmtree(d)
-    d.mkdir()
-    return d
+    return Path(tempfile.mkdtemp(prefix=f"reg_{uuid4().hex}_"))
 
 
 def test_registry_list_get_generate() -> None:
