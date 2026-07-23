@@ -11,7 +11,7 @@ from mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP", version="0.3.0")
+app = Server("fpgaZeroMCP", version="0.4.0")
 
 
 # Lazy singletons — CoreRegistry does disk I/O and BuildManager allocates a
