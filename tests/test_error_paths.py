@@ -773,6 +773,28 @@ class TestBuildManager:
         assert result["success"] is False
         assert "work_dir does not exist" in result["error"]
 
+    def test_terminate_tree_kills_running_process(self) -> None:
+        """Exercise the platform-specific kill path (taskkill / killpg) live."""
+        import subprocess
+        import sys as _sys
+        import time as _time
+
+        from tools.build_manager import _terminate_tree
+
+        popen_kwargs: dict = {}
+        if _sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(
+            [_sys.executable, "-c", "import time; time.sleep(60)"],
+            **popen_kwargs,
+        )
+        start = _time.monotonic()
+        _terminate_tree(proc)
+        assert proc.poll() is not None, "process still running after terminate"
+        assert _time.monotonic() - start < 30
+
     def test_clear_finished(self) -> None:
         mgr = BuildManager()
         cmd = self._allowed_cmd()

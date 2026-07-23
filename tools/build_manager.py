@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -179,8 +180,10 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
     grandchildren (yosys/nextpnr spawned by a LiteX build) running; taskkill /T
     takes down the tree. On POSIX the build runs in its own session, so the
     process group can be signalled as a whole.
+    (sys.platform, not os.name — mypy narrows the former, so each CI
+    platform only type-checks its own branch.)
     """
-    if os.name == "nt":
+    if sys.platform == "win32":
         subprocess.run(
             ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
             capture_output=True,
@@ -244,7 +247,7 @@ class BuildManager:
         # terminate the whole tree (e.g. LiteX spawning yosys/nextpnr), not
         # just the immediate child.
         popen_kwargs: dict = {}
-        if os.name == "nt":
+        if sys.platform == "win32":
             popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             popen_kwargs["start_new_session"] = True

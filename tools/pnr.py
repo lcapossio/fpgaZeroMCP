@@ -363,9 +363,7 @@ def place_and_route(
             else:
                 bs_dir = data_root() / "bitstreams"
                 bs_dir.mkdir(parents=True, exist_ok=True)
-                bs_name = (
-                    f"{top_module}_{target}_{uuid4().hex[:8]}{OUTPUT_EXT[target]}"
-                )
+                bs_name = f"{top_module}_{target}_{uuid4().hex[:8]}{OUTPUT_EXT[target]}"
                 bitstream_path = str(bs_dir / bs_name)
                 shutil.copyfile(out_file, bitstream_path)
             result["bitstream_path"] = bitstream_path
