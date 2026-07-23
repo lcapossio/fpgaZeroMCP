@@ -84,7 +84,7 @@ def lint_hdl(
             f.write(code)
 
         if language == "vhdl":
-            cmd = ["ghdl", "-a", "--std=08", tmpfile]
+            cmd = ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, tmpfile]
         elif linter == "verilator":
             cmd = _verilator_cmd([tmpfile], language, top_module)
         elif language == "systemverilog":

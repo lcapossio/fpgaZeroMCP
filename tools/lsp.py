@@ -213,9 +213,12 @@ def _verible_format(tmpfile: str, original: str) -> dict:
 
 
 def _ghdl_diagnostics(tmpfile: str) -> dict:
+    # --workdir keeps the GHDL work library (work-obj08.cf) out of the
+    # server's cwd and isolates concurrent analyses from each other.
+    workdir = os.path.dirname(tmpfile)
     try:
         r = subprocess.run(
-            ["ghdl", "-a", "--std=08", tmpfile],
+            ["ghdl", "-a", "--std=08", "--workdir=" + workdir, tmpfile],
             capture_output=True,
             text=True,
             errors="replace",
