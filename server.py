@@ -136,7 +136,9 @@ async def handle_list_tools() -> list[Tool]:
                 "Synthesize HDL (Verilog, SystemVerilog, or VHDL) using Yosys or run LiteX backend. "
                 "Provide source as: code (single string), files (dict of filename→source), "
                 "or project_dir (path to HDL files on disk). "
-                "Returns resource statistics and the list of inferred modules. "
+                "Returns structured resource statistics (stats field: wires, cells, "
+                "cells_by_type, ...) and the list of inferred modules. "
+                "Logs are truncated on success; full logs are kept on failure. "
                 "Supported targets: generic, ice40, ecp5, gowin, xilinx, intel."
             ),
             inputSchema={
@@ -210,7 +212,9 @@ async def handle_list_tools() -> list[Tool]:
                 "Provide source as: code (single string), files (dict of filename→source), "
                 "or project_dir (path to HDL files on disk). "
                 "If backend=litex, runs LiteX build and ignores HDL inputs. "
-                "Returns max frequency, critical path, resource utilization, bitstream, and full logs. "
+                "Returns max frequency, critical path, resource utilization, and "
+                "bitstream_path — a file on disk ready for program_fpga. "
+                "Set return_bitstream_b64=true to also get the bitstream inline. "
                 "Supported targets: ice40, ecp5, nexus, gowin.\n"
                 "Common device/package values:\n"
                 "  ice40: device=hx1k|hx8k|up5k|lp1k  package=tq144|qn84|sg48|cm81\n"
@@ -297,6 +301,14 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Persistent working directory for incremental runs. Returned in response for reuse.",
                     },
+                    "return_bitstream_b64": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Include the bitstream as base64 in the response. "
+                            "Default: only bitstream_path (file on disk) is returned."
+                        ),
+                    },
                 },
                 "required": ["top_module"],
             },
@@ -306,7 +318,9 @@ async def handle_list_tools() -> list[Tool]:
             description=(
                 "Compile and simulate HDL using Icarus Verilog (iverilog + vvp) or GHDL (VHDL). "
                 "Provide the design source and a separate testbench. "
-                "Returns all $display/$monitor output (Verilog) or report output (VHDL) and any runtime errors."
+                "Returns all $display/$monitor output (Verilog) or report output (VHDL), "
+                "a pass/fail verdict, and a structured VCD waveform summary. "
+                "Set return_vcd=true to include the raw VCD text."
             ),
             inputSchema={
                 "type": "object",
@@ -326,6 +340,14 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "integer",
                         "default": 60,
                         "description": "Timeout in seconds",
+                    },
+                    "return_vcd": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Include raw VCD waveform text in the response "
+                            "(large). Default: structured summary only."
+                        ),
                     },
                 },
                 "required": ["code", "testbench"],
@@ -805,6 +827,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
+                    return_bitstream_b64=arguments.get("return_bitstream_b64", False),
                 )
             case "simulate":
                 from tools.simulate import simulate
@@ -815,6 +838,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     testbench=arguments["testbench"],
                     language=arguments.get("language", "verilog"),
                     timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
+                    return_vcd=arguments.get("return_vcd", False),
                 )
             case "search_github_cores":
                 from registry.github import search_repos

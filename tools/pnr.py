@@ -6,8 +6,10 @@ import base64
 import glob as _glob
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 from tools.boards import get_board_preset
 from tools.synthesize import (
@@ -17,7 +19,8 @@ from tools.synthesize import (
     _resolve_sources,
     _yosys_read_cmds,
 )
-from tools.workspace import temporary_workspace
+from tools.textutil import truncate_log
+from tools.workspace import data_root, temporary_workspace
 
 # nextpnr binary per target
 NEXTPNR_BIN = {
@@ -79,6 +82,7 @@ def place_and_route(
     backend: str = "yosys",
     litex_board: str | None = None,
     litex_args: list[str] | None = None,
+    return_bitstream_b64: bool = False,
 ) -> dict:
     """Synthesize HDL with Yosys then place-and-route with nextpnr.
 
@@ -96,6 +100,9 @@ def place_and_route(
 
     constraints: optional PCF/LPF/PDC/CST text. If omitted and project_dir is
                  used, auto-detects constraint files from the project directory.
+    return_bitstream_b64: also include the bitstream as base64 in the response.
+                 By default only bitstream_path (a file on disk, ready for
+                 program_fpga) is returned to keep the response small.
     """
     if backend == "litex":
         if not litex_board:
@@ -302,9 +309,20 @@ def place_and_route(
             }
 
         combined_output = pnr.stdout + pnr.stderr
+        pnr_ok = pnr.returncode == 0
+
+        # Keep full logs on failure; truncate on success so routine runs
+        # don't flood the AI client's context (timing/utilization are
+        # returned as structured fields anyway).
+        synth_log, synth_trunc = (
+            truncate_log(synth.stdout) if pnr_ok else (synth.stdout, False)
+        )
+        pnr_stdout, pnr_trunc = (
+            truncate_log(pnr.stdout) if pnr_ok else (pnr.stdout, False)
+        )
 
         result: dict = {
-            "success": pnr.returncode == 0,
+            "success": pnr_ok,
             "stage": "place_and_route",
             "target": target,
             "device": device,
@@ -314,10 +332,12 @@ def place_and_route(
             "constraints": cst_source,
             "timing": _parse_timing(combined_output),
             "utilization": _parse_utilization(combined_output, target),
-            "synth_log": synth.stdout,
-            "pnr_stdout": pnr.stdout,
+            "synth_log": synth_log,
+            "pnr_stdout": pnr_stdout,
             "pnr_stderr": pnr.stderr,
         }
+        if synth_trunc or pnr_trunc:
+            result["logs_truncated"] = True
 
         # Evaluate timing against board clock target
         if preset and preset.get("clock_mhz"):
@@ -334,11 +354,27 @@ def place_and_route(
         if nextpnr_args:
             result["nextpnr_args"] = nextpnr_args
 
-        # Include bitstream/config output if PnR succeeded
-        if pnr.returncode == 0 and os.path.exists(out_file):
-            with open(out_file, "rb") as bf:
-                result["bitstream_b64"] = base64.b64encode(bf.read()).decode("ascii")
+        # Persist the bitstream and return its path (feeds straight into
+        # program_fpga's bitstream_path). Base64 only on request — it is
+        # large and rarely useful inline.
+        if pnr_ok and os.path.exists(out_file):
+            if use_persistent:
+                bitstream_path = out_file
+            else:
+                bs_dir = data_root() / "bitstreams"
+                bs_dir.mkdir(parents=True, exist_ok=True)
+                bs_name = (
+                    f"{top_module}_{target}_{uuid4().hex[:8]}{OUTPUT_EXT[target]}"
+                )
+                bitstream_path = str(bs_dir / bs_name)
+                shutil.copyfile(out_file, bitstream_path)
+            result["bitstream_path"] = bitstream_path
             result["bitstream_ext"] = OUTPUT_EXT[target]
+            if return_bitstream_b64:
+                with open(out_file, "rb") as bf:
+                    result["bitstream_b64"] = base64.b64encode(bf.read()).decode(
+                        "ascii"
+                    )
 
         return result
 

@@ -173,7 +173,7 @@ Add to your MCP settings (Settings → MCP Servers):
 |---|---|
 | `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Returns verdict + VCD summary |
 | `synthesize` | Yosys synthesis with resource stats. Accepts `code`, `files`, or `project_dir`. Verilog, SV, VHDL |
-| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream output |
+| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
 | `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
 

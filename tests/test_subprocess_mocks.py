@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -710,9 +711,10 @@ class TestPnrMocked:
         monkeypatch.setattr(subprocess, "run", fake_run)
         return captured
 
-    def test_pnr_full_pipeline_ice40(self, monkeypatch) -> None:
+    def test_pnr_full_pipeline_ice40(self, monkeypatch, scratch_dir) -> None:
         from tools.pnr import place_and_route
 
+        monkeypatch.setenv("FPGAZERO_DATA_DIR", scratch_dir)
         self._setup_successful_run(monkeypatch)
         r = place_and_route(
             code="module top(input clk, output y); assign y = clk; endmodule",
@@ -725,8 +727,27 @@ class TestPnrMocked:
         assert r["target"] == "ice40"
         assert r["timing"]["max_freq_mhz"] == 142.34
         assert r["utilization"]["luts_used"] == 42
-        # Bitstream returned as base64
-        assert "bitstream_b64" in r
+        # Bitstream persisted to disk; base64 only on request
+        assert "bitstream_b64" not in r
+        assert Path(r["bitstream_path"]).read_bytes() == b"\xde\xad\xbe\xef"
+
+    def test_pnr_bitstream_b64_opt_in(self, monkeypatch, scratch_dir) -> None:
+        import base64
+
+        from tools.pnr import place_and_route
+
+        monkeypatch.setenv("FPGAZERO_DATA_DIR", scratch_dir)
+        self._setup_successful_run(monkeypatch)
+        r = place_and_route(
+            code="module top(input clk, output y); assign y = clk; endmodule",
+            top_module="top",
+            target="ice40",
+            device="hx1k",
+            package="tq144",
+            return_bitstream_b64=True,
+        )
+        assert r["success"] is True
+        assert base64.b64decode(r["bitstream_b64"]) == b"\xde\xad\xbe\xef"
 
     def test_pnr_board_preset_resolves(self, monkeypatch) -> None:
         from tools.pnr import place_and_route
