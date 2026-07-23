@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
+from tools.workspace import data_root
+
 
 @dataclass
 class BuildRecord:
@@ -228,7 +230,7 @@ class BuildManager:
             return {"success": False, "error": err}
 
         build_id = uuid4().hex[:8]
-        log_dir = Path("no_commit") / "builds"
+        log_dir = data_root() / "builds"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{build_id}.log"
 
@@ -352,7 +354,7 @@ class BuildManager:
         Removes logs older than max_age_days, then trims by size
         (oldest first) until total size is under max_total_mb.
         """
-        log_dir = Path("no_commit") / "builds"
+        log_dir = data_root() / "builds"
         if not log_dir.exists():
             return {"deleted": 0, "freed_kb": 0}
 

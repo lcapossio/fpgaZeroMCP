@@ -474,8 +474,9 @@ class TestBuildManagerExtra:
     def test_cleanup_logs_by_age(self, monkeypatch, scratch_dir) -> None:
         from tools.build_manager import BuildManager
 
-        # Create fake build logs under no_commit/builds
-        logs_dir = scratch_dir / "no_commit" / "builds"
+        # Create fake build logs under the data root
+        monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir))
+        logs_dir = scratch_dir / "builds"
         logs_dir.mkdir(parents=True)
         old = logs_dir / "old.log"
         new = logs_dir / "new.log"
@@ -484,9 +485,6 @@ class TestBuildManagerExtra:
         # Age the old log 30 days
         now = time.time()
         os.utime(old, (now - 30 * 86400, now - 30 * 86400))
-
-        # Chdir so cleanup_logs finds the right directory
-        monkeypatch.chdir(scratch_dir)
         r = BuildManager.cleanup_logs(max_age_days=7, max_total_mb=999)
         assert r["deleted"] == 1
         assert not old.exists()
@@ -495,7 +493,8 @@ class TestBuildManagerExtra:
     def test_cleanup_logs_by_size(self, monkeypatch, scratch_dir) -> None:
         from tools.build_manager import BuildManager
 
-        logs_dir = scratch_dir / "no_commit" / "builds"
+        monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir))
+        logs_dir = scratch_dir / "builds"
         logs_dir.mkdir(parents=True)
         # Create 3 logs, each 1 KB, and trim to 2 KB total
         for i in range(3):
@@ -504,8 +503,6 @@ class TestBuildManagerExtra:
             os.utime(
                 logs_dir / f"b{i}.log", (time.time() - (10 - i), time.time() - (10 - i))
             )
-
-        monkeypatch.chdir(scratch_dir)
         # max_total_mb=0 with 1KB min would force deletion; use a very small cap
         # cleanup uses bytes = max_total_mb * 1024 * 1024; 1 KB ≈ 0.001 MB; clamp to 0
         r = BuildManager.cleanup_logs(max_age_days=365, max_total_mb=0)
@@ -515,7 +512,7 @@ class TestBuildManagerExtra:
     def test_cleanup_logs_no_directory(self, monkeypatch, scratch_dir) -> None:
         from tools.build_manager import BuildManager
 
-        monkeypatch.chdir(scratch_dir)
+        monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir / "empty"))
         r = BuildManager.cleanup_logs()
         assert r == {"deleted": 0, "freed_kb": 0}
 

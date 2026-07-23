@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.workspace import temporary_workspace
+from tools.workspace import data_root, temporary_workspace
 
 _BOARD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
@@ -53,7 +53,7 @@ def litex_build(
             out_dir = Path(output_dir)
         else:
             # Use a persistent directory so build artifacts survive temp cleanup
-            out_dir = Path.cwd() / "no_commit" / "litex_build" / board
+            out_dir = data_root() / "litex_build" / board
         out_dir.mkdir(parents=True, exist_ok=True)
 
         build_args = list(args or [])
@@ -79,7 +79,7 @@ def litex_soc(
             out_dir = Path(output_dir)
         else:
             # Use a persistent directory so SoC artifacts survive temp cleanup
-            out_dir = Path.cwd() / "no_commit" / "litex_soc" / board
+            out_dir = data_root() / "litex_soc" / board
         out_dir.mkdir(parents=True, exist_ok=True)
 
         soc_args = list(args or [])
