@@ -81,7 +81,8 @@ def format_hdl(code: str, language: str = "verilog") -> dict:
 
 
 def _verilator_diagnostics(tmpfile: str, language: str) -> dict:
-    flags = ["-g2012"] if language == "systemverilog" else []
+    # -g2012 is an iverilog flag; Verilator's SystemVerilog switch is --sv
+    flags = ["--sv"] if language == "systemverilog" else []
     try:
         r = subprocess.run(
             ["verilator", "--lint-only", "--error-limit", "50"] + flags + [tmpfile],
@@ -213,9 +214,12 @@ def _verible_format(tmpfile: str, original: str) -> dict:
 
 
 def _ghdl_diagnostics(tmpfile: str) -> dict:
+    # --workdir keeps the GHDL work library (work-obj08.cf) out of the
+    # server's cwd and isolates concurrent analyses from each other.
+    workdir = os.path.dirname(tmpfile)
     try:
         r = subprocess.run(
-            ["ghdl", "-a", "--std=08", tmpfile],
+            ["ghdl", "-a", "--std=08", "--workdir=" + workdir, tmpfile],
             capture_output=True,
             text=True,
             errors="replace",

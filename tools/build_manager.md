@@ -118,9 +118,11 @@ Deletes old logs first, then trims by size (oldest first).
 
 | What | Location |
 |---|---|
-| Build logs | `<cwd>/no_commit/builds/<build_id>.log` |
+| Build logs | `<data dir>/builds/<build_id>.log` (data dir: `FPGAZERO_DATA_DIR`, default `<install dir>/no_commit`) |
 | Build subprocess cwd | `work_dir` parameter, or server's cwd |
 | Tool-generated artifacts | Wherever the tool writes them relative to subprocess cwd |
+
+`work_dir` must resolve under the server's current directory, `$HOME`, or a directory listed in `FPGAZERO_ALLOWED_DIRS`.
 
 **Important for Vivado/Quartus:** These tools create large directory trees (`.runs/`, `.cache/`, project files) in their working directory. Always set `work_dir` to a dedicated build directory to avoid polluting the server's cwd.
 

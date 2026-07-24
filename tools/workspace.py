@@ -11,6 +11,19 @@ from pathlib import Path
 from uuid import uuid4
 
 
+def data_root() -> Path:
+    """Root directory for persistent server artifacts (logs, build output, temp).
+
+    FPGAZERO_DATA_DIR overrides; the default is <package>/no_commit rather than
+    the process cwd — MCP clients may launch the server from an arbitrary
+    directory, and artifacts must not be scattered into it.
+    """
+    env = os.environ.get("FPGAZERO_DATA_DIR", "").strip()
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parent.parent / "no_commit"
+
+
 def _candidate_tmp_roots() -> list[Path]:
     roots: list[Path] = []
 
@@ -18,14 +31,9 @@ def _candidate_tmp_roots() -> list[Path]:
     if env_root:
         roots.append(Path(env_root))
 
-    # Prefer a workspace-local scratch directory when possible. This avoids
+    # Prefer a package-local scratch directory when possible. This avoids
     # flaky temp-directory behavior on some Windows environments.
-    roots.append(Path.cwd() / "no_commit" / "fpgazero_tmp")
-
-    repo_root = Path(__file__).resolve().parent.parent
-    repo_tmp = repo_root / "no_commit" / "fpgazero_tmp"
-    if repo_tmp not in roots:
-        roots.append(repo_tmp)
+    roots.append(data_root() / "fpgazero_tmp")
 
     roots.append(Path(tempfile.gettempdir()))
     return roots

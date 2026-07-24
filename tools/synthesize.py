@@ -9,6 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from tools.textutil import truncate_log
 from tools.workspace import temporary_workspace
 
 SYNTH_CMDS: dict[str, str] = {
@@ -54,19 +55,24 @@ def _allowed_project_roots() -> list[Path]:
     return roots
 
 
-def _validate_project_dir(project_dir: str) -> str | None:
-    """Return an error string if project_dir is outside all allowed roots."""
+def validate_path_in_roots(path: str, label: str) -> str | None:
+    """Return an error string if path is outside all allowed roots."""
     try:
-        resolved = Path(project_dir).resolve()
+        resolved = Path(path).resolve()
         for root in _allowed_project_roots():
             if resolved.is_relative_to(root):
                 return None
         return (
-            f"project_dir is outside allowed directories. "
+            f"{label} is outside allowed directories. "
             f"Got: {resolved}. Set FPGAZERO_ALLOWED_DIRS to add more roots."
         )
     except (OSError, ValueError) as exc:
-        return f"Invalid project_dir: {exc}"
+        return f"Invalid {label}: {exc}"
+
+
+def _validate_project_dir(project_dir: str) -> str | None:
+    """Return an error string if project_dir is outside all allowed roots."""
+    return validate_path_in_roots(project_dir, "project_dir")
 
 
 def _validate_filename(fname: str) -> str | None:
@@ -239,6 +245,42 @@ def _yosys_read_cmds(
     return "\n".join(lines) + "\n"
 
 
+# "   Number of cells:                 12" — inside a yosys `stat` block
+_STAT_NUM_RE = re.compile(r"^\s+Number of ([\w ]+?):\s+(\d+)\s*$", re.MULTILINE)
+# "     SB_LUT4                         4" — per-cell-type count line
+_STAT_CELL_RE = re.compile(r"^\s{4,}(\$?[A-Za-z_$][\w$.:]*)\s+(\d+)\s*$", re.MULTILINE)
+_STAT_BLOCK_RE = re.compile(r"^===\s+(.+?)\s+===$", re.MULTILINE)
+
+
+def parse_yosys_stats(stdout: str) -> dict:
+    """Extract structured resource counts from yosys `stat` output.
+
+    Uses the last `=== <module> ===` block of the last statistics section —
+    for hierarchical designs yosys prints the design totals last.
+    """
+    idx = stdout.rfind("Printing statistics")
+    section = stdout[idx:] if idx != -1 else stdout
+
+    blocks = list(_STAT_BLOCK_RE.finditer(section))
+    if blocks:
+        section = section[blocks[-1].end() :]
+
+    stats: dict = {}
+    for m in _STAT_NUM_RE.finditer(section):
+        key = m.group(1).strip().lower().replace(" ", "_")
+        stats[key] = int(m.group(2))
+
+    cells: dict[str, int] = {}
+    for m in _STAT_CELL_RE.finditer(section):
+        name = m.group(1)
+        if name.startswith("Number"):
+            continue
+        cells[name] = int(m.group(2))
+    if cells:
+        stats["cells_by_type"] = cells
+    return stats
+
+
 def synthesize(
     code: str = "",
     top_module: str = "",
@@ -356,15 +398,25 @@ def synthesize(
                     netlist = json.load(f)
                 modules = list(netlist.get("modules", {}).keys())
 
+            success = result.returncode == 0
+            # Keep the full log on failure (errors matter); truncate on success
+            # so a routine synthesis doesn't flood the AI client's context.
+            stdout_text, stdout_truncated = (
+                truncate_log(result.stdout) if success else (result.stdout, False)
+            )
+
             output: dict = {
-                "success": result.returncode == 0,
+                "success": success,
                 "target": target,
                 "language": language,
                 "top_module": top_module,
                 "modules": modules,
-                "stdout": result.stdout,
+                "stats": parse_yosys_stats(result.stdout) if success else {},
+                "stdout": stdout_text,
                 "stderr": result.stderr,
             }
+            if stdout_truncated:
+                output["stdout_truncated"] = True
             if files:
                 output["files"] = list(files.keys())
             if project_dir:

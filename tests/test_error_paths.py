@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,11 +45,7 @@ from server import _clamp_timeout
 
 
 def _mk_tmp_dir() -> Path:
-    base = Path("no_commit") / "pytest_tmp"
-    base.mkdir(parents=True, exist_ok=True)
-    d = base / f"err_{uuid4().hex}"
-    d.mkdir()
-    return d
+    return Path(tempfile.mkdtemp(prefix=f"err_{uuid4().hex}_"))
 
 
 # ---------------------------------------------------------------------------
@@ -768,6 +765,35 @@ class TestBuildManager:
         result = mgr.start(cmd=["python", "-c", "print('hello')"])
         assert result["success"] is False
         assert "must use '-m <module>'" in result["error"]
+
+    def test_missing_work_dir_rejected(self) -> None:
+        mgr = BuildManager()
+        missing = _mk_tmp_dir() / "missing"
+        result = mgr.start(cmd=["iverilog", "-V"], work_dir=str(missing))
+        assert result["success"] is False
+        assert "work_dir does not exist" in result["error"]
+
+    def test_terminate_tree_kills_running_process(self) -> None:
+        """Exercise the platform-specific kill path (taskkill / killpg) live."""
+        import subprocess
+        import sys as _sys
+        import time as _time
+
+        from tools.build_manager import _terminate_tree
+
+        popen_kwargs: dict = {}
+        if _sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(
+            [_sys.executable, "-c", "import time; time.sleep(60)"],
+            **popen_kwargs,
+        )
+        start = _time.monotonic()
+        _terminate_tree(proc)
+        assert proc.poll() is not None, "process still running after terminate"
+        assert _time.monotonic() - start < 30
 
     def test_clear_finished(self) -> None:
         mgr = BuildManager()

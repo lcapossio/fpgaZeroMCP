@@ -15,18 +15,24 @@ def simulate(
     testbench: str,
     language: str = "verilog",
     timeout: int = 60,
+    return_vcd: bool = False,
 ) -> dict:
     """Compile and run an HDL simulation.
 
     Verilog/SystemVerilog: Icarus Verilog (iverilog + vvp)
     VHDL:                  GHDL (ghdl -a, ghdl -e, ghdl -r)
+
+    return_vcd: include the raw VCD text in the response (can be large);
+                by default only a structured summary is returned.
     """
     if language == "vhdl":
-        return _simulate_vhdl(code, testbench, timeout)
-    return _simulate_verilog(code, testbench, timeout)
+        return _simulate_vhdl(code, testbench, timeout, return_vcd)
+    return _simulate_verilog(code, testbench, timeout, return_vcd)
 
 
-def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
+def _simulate_verilog(
+    code: str, testbench: str, timeout: int, return_vcd: bool = False
+) -> dict:
     """Compile and run a Verilog simulation using Icarus Verilog (iverilog + vvp)."""
     with temporary_workspace("sim_") as tmpdir:
         design_file = os.path.join(tmpdir, "design.v")
@@ -73,7 +79,7 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
                     run_result.stdout, run_result.stderr, run_result.returncode
                 ),
             }
-            result.update(_collect_waveforms(tmpdir))
+            result.update(_collect_waveforms(tmpdir, return_vcd))
             return result
 
         except FileNotFoundError:
@@ -88,7 +94,9 @@ def _simulate_verilog(code: str, testbench: str, timeout: int) -> dict:
             }
 
 
-def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
+def _simulate_vhdl(
+    code: str, testbench: str, timeout: int, return_vcd: bool = False
+) -> dict:
     """Compile and run a VHDL simulation using GHDL."""
     # Check for testbench entity before invoking GHDL
     tb_entity = _find_vhdl_entity(testbench)
@@ -182,7 +190,7 @@ def _simulate_vhdl(code: str, testbench: str, timeout: int) -> dict:
                     run_result.stdout, run_result.stderr, run_result.returncode
                 ),
             }
-            result.update(_collect_waveforms(tmpdir))
+            result.update(_collect_waveforms(tmpdir, return_vcd))
             return result
 
         except FileNotFoundError:
@@ -277,8 +285,13 @@ def _summarize_vcd(vcd_text: str) -> dict:
     }
 
 
-def _collect_waveforms(tmpdir: str) -> dict:
-    """Return VCD waveform data and summary if produced by the simulation."""
+def _collect_waveforms(tmpdir: str, include_vcd: bool = False) -> dict:
+    """Return a VCD summary (and optionally the raw VCD text) if produced.
+
+    The raw VCD is only included when include_vcd is True — it can be hundreds
+    of kilobytes, which floods an AI client's context for no benefit when the
+    structured summary suffices.
+    """
     extras: dict = {}
     vcd_files = glob.glob(os.path.join(tmpdir, "*.vcd"))
     if vcd_files:
@@ -287,8 +300,9 @@ def _collect_waveforms(tmpdir: str) -> dict:
         if size <= _MAX_VCD_SIZE:
             with open(vcd_path, "r", encoding="utf-8", errors="replace") as f:
                 vcd_text = f.read()
-            extras["vcd"] = vcd_text
             extras["vcd_summary"] = _summarize_vcd(vcd_text)
+            if include_vcd:
+                extras["vcd"] = vcd_text
         else:
             extras["vcd_truncated"] = True
             extras["vcd_size_kb"] = round(size / 1024, 1)

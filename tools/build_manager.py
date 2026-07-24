@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
+
+from tools.workspace import data_root
 
 
 @dataclass
@@ -119,6 +122,17 @@ _ALLOWED_COMMANDS = {
 _PYTHON_PREFIX = "python"
 
 
+def _allowed_work_roots() -> list[Path]:
+    roots = [Path.cwd().resolve(), Path.home().resolve()]
+    env_dirs = os.environ.get("FPGAZERO_ALLOWED_DIRS", "").strip()
+    if env_dirs:
+        for dirname in env_dirs.split(os.pathsep):
+            dirname = dirname.strip()
+            if dirname:
+                roots.append(Path(dirname).resolve())
+    return roots
+
+
 def _validate_build_cmd(cmd: list[str]) -> str | None:
     """Return an error string if cmd is not in the allowlist, else None."""
     if not cmd:
@@ -140,6 +154,62 @@ def _validate_build_cmd(cmd: list[str]) -> str | None:
     return None
 
 
+def _validate_work_dir(work_dir: str | None) -> str | None:
+    """Return an error string if work_dir is outside allowed filesystem roots."""
+    if not work_dir:
+        return None
+    try:
+        resolved = Path(work_dir).resolve()
+        if not resolved.is_dir():
+            return f"work_dir does not exist or is not a directory: {work_dir}"
+        for root in _allowed_work_roots():
+            if resolved.is_relative_to(root):
+                return None
+        return (
+            f"work_dir is outside allowed directories. "
+            f"Got: {resolved}. Set FPGAZERO_ALLOWED_DIRS to add more roots."
+        )
+    except (OSError, ValueError) as exc:
+        return f"Invalid work_dir: {exc}"
+
+
+def _terminate_tree(proc: subprocess.Popen) -> None:
+    """Terminate a build process and all of its children.
+
+    On Windows, proc.terminate() kills only the immediate child, leaving
+    grandchildren (yosys/nextpnr spawned by a LiteX build) running; taskkill /T
+    takes down the tree. On POSIX the build runs in its own session, so the
+    process group can be signalled as a whole.
+    (sys.platform, not os.name — mypy narrows the former, so each CI
+    platform only type-checks its own branch.)
+    """
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            capture_output=True,
+        )
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return
+
+    import signal
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.wait(timeout=5)
+
+
 class BuildManager:
     """Manages background builds with log capture and status queries."""
 
@@ -158,9 +228,12 @@ class BuildManager:
         err = _validate_build_cmd(cmd)
         if err:
             return {"success": False, "error": err}
+        err = _validate_work_dir(work_dir)
+        if err:
+            return {"success": False, "error": err}
 
         build_id = uuid4().hex[:8]
-        log_dir = Path("no_commit") / "builds"
+        log_dir = data_root() / "builds"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{build_id}.log"
 
@@ -170,6 +243,15 @@ class BuildManager:
         if env:
             proc_env.update(env)
 
+        # Run the build in its own process group/session so cancel() can
+        # terminate the whole tree (e.g. LiteX spawning yosys/nextpnr), not
+        # just the immediate child.
+        popen_kwargs: dict = {}
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+
         try:
             log_file = open(log_path, "w", encoding="utf-8")
             proc = subprocess.Popen(
@@ -178,6 +260,7 @@ class BuildManager:
                 stderr=subprocess.STDOUT,
                 cwd=cwd,
                 env=proc_env,
+                **popen_kwargs,
             )
         except FileNotFoundError:
             log_file.close()
@@ -248,11 +331,7 @@ class BuildManager:
         proc = record._process
         if proc is None:
             return {"error": f"Build '{build_id}' has no associated process."}
-        try:
-            proc.terminate()
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _terminate_tree(proc)
         record.returncode = proc.returncode
         record.end_time = time.time()
 
@@ -278,7 +357,7 @@ class BuildManager:
         Removes logs older than max_age_days, then trims by size
         (oldest first) until total size is under max_total_mb.
         """
-        log_dir = Path("no_commit") / "builds"
+        log_dir = data_root() / "builds"
         if not log_dir.exists():
             return {"deleted": 0, "freed_kb": 0}
 

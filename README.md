@@ -19,6 +19,7 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus)
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
+- **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running
 - **IP core registry**: live search and import from GitHub with FuseSoC CAPI2 metadata
 - **Health check**: discover which OSS CAD Suite tools are installed and reachable
 
@@ -172,7 +173,7 @@ Add to your MCP settings (Settings → MCP Servers):
 |---|---|
 | `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Returns verdict + VCD summary |
 | `synthesize` | Yosys synthesis with resource stats. Accepts `code`, `files`, or `project_dir`. Verilog, SV, VHDL |
-| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream output |
+| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
 | `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
 
@@ -383,7 +384,8 @@ These are zero-code changes and fully transparent.
 | `USERCORES_PATH` | Extra core search directories (OS path separator delimited) |
 | `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
 | `FPGAZERO_TMPDIR` | Override temporary workspace root directory |
-| `FPGAZERO_ALLOWED_DIRS` | OS pathsep-separated list of extra directories that `project_dir` may read from (in addition to cwd and `$HOME`) |
+| `FPGAZERO_DATA_DIR` | Root for persistent server artifacts — build logs, LiteX output, temp workspaces (default: `<install dir>/no_commit`) |
+| `FPGAZERO_ALLOWED_DIRS` | OS pathsep-separated list of extra directories that `project_dir` may read from and `start_build`/`place_and_route` may use as `work_dir` (in addition to cwd and `$HOME`) |
 
 ---
 
