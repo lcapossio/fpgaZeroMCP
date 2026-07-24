@@ -67,10 +67,19 @@ jobs:
           python-version: "3.12"
 
       - name: Install OSS CAD Suite
+        env:
+          # Authenticated API calls get a per-repo quota; unauthenticated ones
+          # share 60 req/h across the runner's IP and flake under load.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          URL=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest \
+          URL=$(curl -s --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest \
             | python3 -c "import sys,json;[print(a['browser_download_url']) for a in json.load(sys.stdin)['assets'] if 'linux-x64' in a['name']]")
-          curl -fSL "$URL" | tar -xz -C $HOME
+          if [ -z "$URL" ]; then
+            echo "Could not resolve OSS CAD Suite download URL" >&2
+            exit 1
+          fi
+          curl --retry 3 -fSL "$URL" | tar -xz -C $HOME
           echo "$HOME/oss-cad-suite/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
