@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import subprocess
@@ -27,8 +28,13 @@ def _win_to_wsl_path(path: str) -> str:
     return p
 
 
+@functools.cache
 def _wsl_has_verilator() -> bool:
-    """Return True if WSL is available and has verilator installed."""
+    """Return True if WSL is available and has verilator installed.
+
+    Cached — the probe spawns a WSL subprocess (~200 ms+), and availability
+    doesn't change within a server session.
+    """
     if sys.platform != "win32":
         return False
     try:
@@ -106,9 +112,14 @@ def lint_hdl(
             return {
                 "success": False,
                 "error": f"'{tool}' not found. Install it and ensure it is on PATH.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": "Lint timed out after 30 s."}
+            return {
+                "success": False,
+                "error": "Lint timed out after 30 s.",
+                "error_code": "timeout",
+            }
 
         output = {
             "success": result.returncode == 0,
@@ -136,7 +147,11 @@ def lint_project(
     Verilator enables -Wall which includes MULTIDRIVEN net detection.
     """
     if not files:
-        return {"success": False, "error": "No files provided."}
+        return {
+            "success": False,
+            "error": "No files provided.",
+            "error_code": "invalid_input",
+        }
 
     suffix = _SUFFIX_MAP.get(language, ".v")
 
@@ -181,9 +196,14 @@ def lint_project(
             return {
                 "success": False,
                 "error": f"'{tool}' not found. Install OSS CAD Suite.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": f"Lint timed out after {timeout} s."}
+            return {
+                "success": False,
+                "error": f"Lint timed out after {timeout} s.",
+                "error_code": "timeout",
+            }
 
         output = {
             "success": result.returncode == 0,
