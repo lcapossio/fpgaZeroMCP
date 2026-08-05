@@ -36,6 +36,13 @@ FILE_NOT_FOUND = "file_not_found"
 NOT_ALLOWED = "not_allowed"
 BUILD_NOT_FOUND = "build_not_found"
 
+# Registry
+CORE_NOT_FOUND = "core_not_found"
+
+# Network / server
+NETWORK_ERROR = "network_error"
+INTERNAL_ERROR = "internal_error"
+
 
 def err(code: str, message: str, **extra: object) -> dict:
     """Build a standard error dict with error_code."""

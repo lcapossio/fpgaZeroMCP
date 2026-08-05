@@ -124,7 +124,8 @@ class CoreRegistry:
         """Return the full manifest and HDL source for a named core."""
         if name not in self._cache:
             return {
-                "error": f"Core '{name}' not found. Use list_ip_cores to see available cores."
+                "error": f"Core '{name}' not found. Use list_ip_cores to see available cores.",
+                "error_code": "core_not_found",
             }
 
         manifest, core_dir = self._cache[name]
@@ -132,10 +133,16 @@ class CoreRegistry:
         for filename in manifest.files:
             rel = Path(filename)
             if rel.is_absolute() or ".." in rel.parts or filename.startswith("/"):
-                return {"error": f"Unsafe file path in core '{name}': {filename}"}
+                return {
+                    "error": f"Unsafe file path in core '{name}': {filename}",
+                    "error_code": "path_security",
+                }
             path = (core_dir / rel).resolve()
             if not path.is_relative_to(core_dir.resolve()):
-                return {"error": f"Path traversal in core '{name}': {filename}"}
+                return {
+                    "error": f"Path traversal in core '{name}': {filename}",
+                    "error_code": "path_security",
+                }
             if path.exists():
                 files[filename] = path.read_text(encoding="utf-8")
             else:
@@ -171,11 +178,14 @@ class CoreRegistry:
 
         src = Path(path)
         if not src.exists():
-            return {"error": f"File not found: {path}"}
+            return {"error": f"File not found: {path}", "error_code": "file_not_found"}
 
         manifest_dict = load_core_file(src)
         if not manifest_dict:
-            return {"error": f"Could not parse CAPI2 .core file: {path}"}
+            return {
+                "error": f"Could not parse CAPI2 .core file: {path}",
+                "error_code": "invalid_input",
+            }
 
         core_name = manifest_dict["name"]
         dest_dir = self._dir / core_name
@@ -185,14 +195,23 @@ class CoreRegistry:
         for fname in manifest_dict.get("files", []):
             rel = Path(fname)
             if rel.is_absolute() or rel.drive or ".." in rel.parts:
-                return {"error": f"Unsafe file path in core file: {fname}"}
+                return {
+                    "error": f"Unsafe file path in core file: {fname}",
+                    "error_code": "path_security",
+                }
             src_hdl = (src.parent / rel).resolve()
             if not src_hdl.is_relative_to(src.parent.resolve()):
-                return {"error": f"Unsafe source path in core file: {fname}"}
+                return {
+                    "error": f"Unsafe source path in core file: {fname}",
+                    "error_code": "path_security",
+                }
             if src_hdl.exists():
                 dest_file = (dest_dir / rel).resolve()
                 if not dest_file.is_relative_to(dest_dir.resolve()):
-                    return {"error": f"Unsafe destination path in core file: {fname}"}
+                    return {
+                        "error": f"Unsafe destination path in core file: {fname}",
+                        "error_code": "path_security",
+                    }
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
                 dest_file.write_text(
                     src_hdl.read_text(encoding="utf-8"), encoding="utf-8"
@@ -232,7 +251,8 @@ class CoreRegistry:
         if unknown:
             return {
                 "error": f"Unknown parameter(s): {', '.join(sorted(unknown))}. "
-                f"Available: {', '.join(sorted(declared))}"
+                f"Available: {', '.join(sorted(declared))}",
+                "error_code": "invalid_input",
             }
 
         # Merge defaults with overrides, validate types and ranges
@@ -244,20 +264,24 @@ class CoreRegistry:
             if ptype == "integer":
                 if isinstance(val, bool) or not isinstance(val, int):
                     return {
-                        "error": f"Parameter '{k}' must be an integer, got {type(val).__name__}"
+                        "error": f"Parameter '{k}' must be an integer, got {type(val).__name__}",
+                        "error_code": "invalid_input",
                     }
                 if spec.get("minimum") is not None and val < spec["minimum"]:
                     return {
-                        "error": f"Parameter '{k}' = {val} is below minimum {spec['minimum']}"
+                        "error": f"Parameter '{k}' = {val} is below minimum {spec['minimum']}",
+                        "error_code": "invalid_input",
                     }
                 if spec.get("maximum") is not None and val > spec["maximum"]:
                     return {
-                        "error": f"Parameter '{k}' = {val} exceeds maximum {spec['maximum']}"
+                        "error": f"Parameter '{k}' = {val} exceeds maximum {spec['maximum']}",
+                        "error_code": "invalid_input",
                     }
             elif ptype == "boolean":
                 if not isinstance(val, (bool, int)):
                     return {
-                        "error": f"Parameter '{k}' must be a boolean, got {type(val).__name__}"
+                        "error": f"Parameter '{k}' must be a boolean, got {type(val).__name__}",
+                        "error_code": "invalid_input",
                     }
                 val = bool(val)
             elif ptype == "string":

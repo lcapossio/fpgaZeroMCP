@@ -50,13 +50,15 @@ def _simulate_verilog(
                 capture_output=True,
                 text=True,
                 errors="replace",
-                timeout=30,
+                timeout=timeout,
             )
             if compile_result.returncode != 0:
                 return {
                     "success": False,
                     "tool": "iverilog",
                     "stage": "compile",
+                    "error": "Compilation failed — see stderr.",
+                    "error_code": "syntax_error",
                     "stdout": compile_result.stdout,
                     "stderr": compile_result.stderr,
                 }
@@ -86,11 +88,13 @@ def _simulate_verilog(
             return {
                 "success": False,
                 "error": "'iverilog'/'vvp' not found. Install OSS CAD Suite.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
                 "error": f"Simulation timed out after {timeout} s.",
+                "error_code": "timeout",
             }
 
 
@@ -107,6 +111,7 @@ def _simulate_vhdl(
             "stage": "elaborate",
             "error": "Could not find an entity in the testbench. "
             "Ensure the testbench contains an 'entity <name> is' declaration.",
+            "error_code": "invalid_input",
         }
 
     with temporary_workspace("sim_vhdl_") as tmpdir:
@@ -125,13 +130,15 @@ def _simulate_vhdl(
                 capture_output=True,
                 text=True,
                 errors="replace",
-                timeout=30,
+                timeout=timeout,
             )
             if analyze_design.returncode != 0:
                 return {
                     "success": False,
                     "tool": "ghdl",
                     "stage": "analyze_design",
+                    "error": "VHDL analysis of the design failed — see stderr.",
+                    "error_code": "syntax_error",
                     "stdout": analyze_design.stdout,
                     "stderr": analyze_design.stderr,
                 }
@@ -142,13 +149,15 @@ def _simulate_vhdl(
                 capture_output=True,
                 text=True,
                 errors="replace",
-                timeout=30,
+                timeout=timeout,
             )
             if analyze_tb.returncode != 0:
                 return {
                     "success": False,
                     "tool": "ghdl",
                     "stage": "analyze_testbench",
+                    "error": "VHDL analysis of the testbench failed — see stderr.",
+                    "error_code": "syntax_error",
                     "stdout": analyze_tb.stdout,
                     "stderr": analyze_tb.stderr,
                 }
@@ -159,7 +168,7 @@ def _simulate_vhdl(
                 capture_output=True,
                 text=True,
                 errors="replace",
-                timeout=30,
+                timeout=timeout,
                 cwd=tmpdir,
             )
             if elab.returncode != 0:
@@ -167,6 +176,8 @@ def _simulate_vhdl(
                     "success": False,
                     "tool": "ghdl",
                     "stage": "elaborate",
+                    "error": "VHDL elaboration failed — see stderr.",
+                    "error_code": "elaboration_error",
                     "stdout": elab.stdout,
                     "stderr": elab.stderr,
                 }
@@ -197,11 +208,13 @@ def _simulate_vhdl(
             return {
                 "success": False,
                 "error": "'ghdl' not found. Install OSS CAD Suite.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
                 "error": f"Simulation timed out after {timeout} s.",
+                "error_code": "timeout",
             }
 
 
