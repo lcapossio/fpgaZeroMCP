@@ -692,8 +692,8 @@ async def handle_list_tools() -> list[Tool]:
         Tool(
             name="cleanup_build_logs",
             description=(
-                "Delete old build logs to reclaim disk space. "
-                "Removes logs older than max_age_days, then trims oldest until under max_total_mb."
+                "Delete old build logs and bitstreams to reclaim disk space. "
+                "Removes files older than max_age_days, then trims oldest until under max_total_mb."
             ),
             inputSchema={
                 "type": "object",

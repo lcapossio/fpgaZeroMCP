@@ -77,6 +77,25 @@ class BuildRecord:
         except FileNotFoundError:
             return ""
 
+    # Vivado/Quartus logs can reach hundreds of MB; parsing the whole file on
+    # every status poll gets slower as the build progresses. The interesting
+    # state (current phase, latest utilization/timing) is at the end anyway.
+    _PARSE_WINDOW_BYTES = 2 * 1024 * 1024
+
+    def parse_window(self) -> str:
+        """Return the last _PARSE_WINDOW_BYTES of the log for parsing."""
+        try:
+            size = os.path.getsize(self.log_path)
+            if size <= self._PARSE_WINDOW_BYTES:
+                return self.full_log()
+            with open(self.log_path, "rb") as f:
+                f.seek(size - self._PARSE_WINDOW_BYTES)
+                data = f.read().decode("utf-8", errors="replace")
+            # Drop the first (likely partial) line
+            return data.split("\n", 1)[-1]
+        except FileNotFoundError:
+            return ""
+
     def to_dict(self, tail_lines: int = 20, parse: bool = True) -> dict:
         from tools.build_parser import parse_build_log
 
@@ -91,7 +110,7 @@ class BuildRecord:
             "tail": self.tail(tail_lines),
         }
         if parse:
-            result["build_info"] = parse_build_log(self.full_log())
+            result["build_info"] = parse_build_log(self.parse_window())
         return result
 
 
@@ -227,10 +246,10 @@ class BuildManager:
         """Start a build subprocess in the background. Returns build info."""
         err = _validate_build_cmd(cmd)
         if err:
-            return {"success": False, "error": err}
+            return {"success": False, "error": err, "error_code": "not_allowed"}
         err = _validate_work_dir(work_dir)
         if err:
-            return {"success": False, "error": err}
+            return {"success": False, "error": err, "error_code": "path_security"}
 
         build_id = uuid4().hex[:8]
         log_dir = data_root() / "builds"
@@ -264,10 +283,14 @@ class BuildManager:
             )
         except FileNotFoundError:
             log_file.close()
-            return {"success": False, "error": f"Command not found: {cmd[0]}"}
+            return {
+                "success": False,
+                "error": f"Command not found: {cmd[0]}",
+                "error_code": "tool_not_found",
+            }
         except Exception as e:
             log_file.close()
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "error_code": "internal_error"}
 
         record = BuildRecord(
             build_id=build_id,
@@ -308,7 +331,10 @@ class BuildManager:
         with self._lock:
             record = self._builds.get(build_id)
         if not record:
-            return {"error": f"Unknown build_id: '{build_id}'"}
+            return {
+                "error": f"Unknown build_id: '{build_id}'",
+                "error_code": "build_not_found",
+            }
         return record.to_dict(tail_lines, parse=parse)
 
     def list_builds(self) -> list[dict]:
@@ -322,15 +348,22 @@ class BuildManager:
         with self._lock:
             record = self._builds.get(build_id)
         if not record:
-            return {"error": f"Unknown build_id: '{build_id}'"}
+            return {
+                "error": f"Unknown build_id: '{build_id}'",
+                "error_code": "build_not_found",
+            }
         if record.status != "running":
             return {
-                "error": f"Build '{build_id}' is not running (status: {record.status})."
+                "error": f"Build '{build_id}' is not running (status: {record.status}).",
+                "error_code": "invalid_input",
             }
 
         proc = record._process
         if proc is None:
-            return {"error": f"Build '{build_id}' has no associated process."}
+            return {
+                "error": f"Build '{build_id}' has no associated process.",
+                "error_code": "internal_error",
+            }
         _terminate_tree(proc)
         record.returncode = proc.returncode
         record.end_time = time.time()
@@ -352,51 +385,73 @@ class BuildManager:
 
     @staticmethod
     def cleanup_logs(max_age_days: int = 7, max_total_mb: int = 500) -> dict:
-        """Delete old build logs to reclaim disk space.
+        """Delete old build logs and bitstreams to reclaim disk space.
 
-        Removes logs older than max_age_days, then trims by size
+        For each artifact directory (builds/, bitstreams/ under the data
+        root): removes files older than max_age_days, then trims by size
         (oldest first) until total size is under max_total_mb.
         """
-        log_dir = data_root() / "builds"
-        if not log_dir.exists():
-            return {"deleted": 0, "freed_kb": 0}
+        deleted = 0
+        freed = 0
+        for subdir, pattern in (("builds", "*.log"), ("bitstreams", "*")):
+            d, f = BuildManager._cleanup_dir(
+                data_root() / subdir, pattern, max_age_days, max_total_mb
+            )
+            deleted += d
+            freed += f
+
+        return {
+            "deleted": deleted,
+            "freed_kb": round(freed / 1024, 1),
+        }
+
+    @staticmethod
+    def _cleanup_dir(
+        target_dir: Path, pattern: str, max_age_days: int, max_total_mb: int
+    ) -> tuple[int, int]:
+        """Apply the age/size cleanup policy to one directory. Returns (deleted, freed_bytes)."""
+        if not target_dir.exists():
+            return 0, 0
 
         import time as _time
 
         cutoff = _time.time() - max_age_days * 86400
-        logs = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
+        entries = sorted(
+            (p for p in target_dir.glob(pattern) if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+        )
 
         deleted = 0
         freed = 0
 
-        # Phase 1: delete old logs
-        for log in logs:
+        # Phase 1: delete old files
+        for entry in entries:
             try:
-                st = log.stat()
+                st = entry.stat()
                 if st.st_mtime < cutoff:
                     freed += st.st_size
-                    log.unlink()
+                    entry.unlink()
                     deleted += 1
             except OSError:
                 continue
 
         # Phase 2: trim by total size
-        remaining = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
+        remaining = sorted(
+            (p for p in target_dir.glob(pattern) if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+        )
         total = sum(p.stat().st_size for p in remaining)
         max_bytes = max_total_mb * 1024 * 1024
-        for log in remaining:
+        for entry in remaining:
             if total <= max_bytes:
                 break
             try:
-                sz = log.stat().st_size
-                log.unlink()
+                sz = entry.stat().st_size
+                entry.unlink()
                 total -= sz
                 freed += sz
                 deleted += 1
             except OSError:
                 continue
 
-        return {
-            "deleted": deleted,
-            "freed_kb": round(freed / 1024, 1),
-        }
+        return deleted, freed
