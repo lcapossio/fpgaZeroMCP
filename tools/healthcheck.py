@@ -26,6 +26,7 @@ _TOOLS = [
     ("iceprog", "iCE40 programmer"),
     ("openFPGALoader", "Universal FPGA programmer"),
     ("ecpprog", "ECP5 programmer"),
+    ("vivado", "AMD/Xilinx Vivado (vendor flow, via start_build/LiteX)"),
 ]
 
 

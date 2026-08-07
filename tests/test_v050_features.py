@@ -400,3 +400,41 @@ class TestLspWslFallback:
         assert r["tool"] == "verilator"
         assert captured[0][:2] == ["wsl", "verilator"]
         assert "/mnt/c/tmp/diag.v" in captured[0]
+
+
+# ---------------------------------------------------------------------------
+# Vivado support
+# ---------------------------------------------------------------------------
+
+
+class TestVivadoSupport:
+    def test_vivado_batch_passes_allowlist(self) -> None:
+        from tools.build_manager import _validate_build_cmd
+
+        assert (
+            _validate_build_cmd(["vivado", "-mode", "batch", "-source", "build.tcl"])
+            is None
+        )
+
+    def test_xilinx_target_uses_openfpgaloader(self, monkeypatch) -> None:
+        import subprocess
+
+        from tools.program import program_fpga
+
+        captured: list[list[str]] = []
+
+        class _Proc:
+            returncode = 0
+            stdout = "done"
+            stderr = ""
+
+        def fake_run(cmd, **_kw):
+            captured.append(cmd)
+            return _Proc()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        r = program_fpga(target="xilinx", bitstream_b64="aGVsbG8=", board="arty")
+        assert r["success"] is True
+        assert r["programmer"] == "openFPGALoader"
+        assert captured[0][0] == "openFPGALoader"
+        assert "--board" in captured[0]

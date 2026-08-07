@@ -608,7 +608,8 @@ async def handle_list_tools() -> list[Tool]:
             description=(
                 "Start a long-running build command in the background. "
                 "Returns a build_id to check progress with build_status. "
-                "Use for synthesis, place-and-route, LiteX builds, or any command that takes minutes."
+                "Use for synthesis, place-and-route, LiteX builds, Vivado batch runs "
+                "(vivado -mode batch -source build.tcl), or any command that takes minutes."
             ),
             inputSchema={
                 "type": "object",
@@ -714,7 +715,8 @@ async def handle_list_tools() -> list[Tool]:
         Tool(
             name="program_fpga",
             description=(
-                "Flash a bitstream to an FPGA board using iceprog (ice40) or openFPGALoader (ecp5/gowin/nexus). "
+                "Flash a bitstream to an FPGA board using iceprog (ice40) or "
+                "openFPGALoader (ecp5/gowin/nexus/xilinx). "
                 "Provide bitstream as base64 (from place_and_route output) or a file path on disk."
             ),
             inputSchema={
@@ -722,7 +724,7 @@ async def handle_list_tools() -> list[Tool]:
                 "properties": {
                     "target": {
                         "type": "string",
-                        "enum": ["ice40", "ecp5", "nexus", "gowin"],
+                        "enum": ["ice40", "ecp5", "nexus", "gowin", "xilinx"],
                         "description": "FPGA family (used to select default programmer)",
                     },
                     "bitstream_b64": {
