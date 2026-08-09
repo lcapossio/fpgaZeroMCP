@@ -11,7 +11,7 @@ from mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP", version="0.4.0")
+app = Server("fpgaZeroMCP", version="0.5.0")
 
 
 # Lazy singletons — CoreRegistry does disk I/O and BuildManager allocates a
@@ -692,8 +692,8 @@ async def handle_list_tools() -> list[Tool]:
         Tool(
             name="cleanup_build_logs",
             description=(
-                "Delete old build logs to reclaim disk space. "
-                "Removes logs older than max_age_days, then trims oldest until under max_total_mb."
+                "Delete old build logs and bitstreams to reclaim disk space. "
+                "Removes files older than max_age_days, then trims oldest until under max_total_mb."
             ),
             inputSchema={
                 "type": "object",
@@ -966,31 +966,40 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
 
                 result = list_boards()
             case _:
-                result = {"error": f"Unknown tool: '{name}'"}
+                result = {
+                    "error": f"Unknown tool: '{name}'",
+                    "error_code": "invalid_input",
+                }
 
         text = json.dumps(result, indent=2)
         is_err = isinstance(result, dict) and "error" in result
         return CallToolResult(
             content=[TextContent(type="text", text=text)],
             isError=is_err,
+            # structuredContent must be a JSON object; list results are wrapped
+            structuredContent=(
+                result if isinstance(result, dict) else {"results": result}
+            ),
         )
 
     except KeyError as exc:
         logger.warning("Tool '%s' missing required argument: %s", name, exc)
+        err_obj = {
+            "error": f"Missing required argument: {exc}",
+            "error_code": "invalid_input",
+        }
         return CallToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=json.dumps({"error": f"Missing required argument: {exc}"}),
-                )
-            ],
+            content=[TextContent(type="text", text=json.dumps(err_obj))],
             isError=True,
+            structuredContent=err_obj,
         )
     except Exception as exc:
         logger.exception("Unhandled error in tool '%s'", name)
+        err_obj = {"error": str(exc), "error_code": "internal_error"}
         return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps({"error": str(exc)}))],
+            content=[TextContent(type="text", text=json.dumps(err_obj))],
             isError=True,
+            structuredContent=err_obj,
         )
 
 

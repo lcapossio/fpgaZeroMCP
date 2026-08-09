@@ -36,8 +36,10 @@ from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
-# MCP protocol version we speak. Update when the spec evolves.
-_PROTOCOL_VERSION = "2024-11-05"
+# Protocol revisions we implement, newest first. If the client requests one
+# of these we echo it back; otherwise we answer with our latest (per spec).
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 
 
 # ---------------------------------------------------------------------------
@@ -78,12 +80,18 @@ class CallToolResult:
 
     content: list[TextContent]
     isError: bool = False  # noqa: N815 — MCP wire name is camelCase
+    # Machine-readable result (2025-06-18 spec). Only sent to clients that
+    # negotiated a protocol revision that defines it.
+    structuredContent: dict | None = None  # noqa: N815
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "content": [c.to_dict() for c in self.content],
             "isError": self.isError,
         }
+        if self.structuredContent is not None:
+            d["structuredContent"] = self.structuredContent
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +111,8 @@ class Server:
     version: str = "0.0.0"
     _list_handler: ListToolsHandler | None = field(default=None, init=False)
     _call_handler: CallToolHandler | None = field(default=None, init=False)
+    _negotiated_version: str = field(default=LATEST_PROTOCOL_VERSION, init=False)
+    _inflight: dict = field(default_factory=dict, init=False, repr=False)
 
     def list_tools(self) -> Callable[[ListToolsHandler], ListToolsHandler]:
         """Decorator: register the list_tools handler."""
@@ -137,11 +147,15 @@ class Server:
         }
 
     async def _handle_initialize(self, params: dict) -> dict:
-        # Echo back the client's protocol version if we recognize it, otherwise
-        # our own. Most clients accept either.
-        client_version = params.get("protocolVersion", _PROTOCOL_VERSION)
+        client_version = params.get("protocolVersion", "")
+        if client_version in SUPPORTED_PROTOCOL_VERSIONS:
+            self._negotiated_version = client_version
+        else:
+            # Unknown revision requested — answer with our latest; the client
+            # disconnects if it can't work with it (per spec).
+            self._negotiated_version = LATEST_PROTOCOL_VERSION
         return {
-            "protocolVersion": client_version,
+            "protocolVersion": self._negotiated_version,
             "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": {"name": self.name, "version": self.version},
         }
@@ -158,7 +172,12 @@ class Server:
         name = params.get("name", "")
         args = params.get("arguments", {}) or {}
         result = await self._call_handler(name, args)
-        return result.to_dict()
+        d = result.to_dict()
+        # structuredContent was introduced in 2025-06-18; don't send it to
+        # clients that negotiated an older revision.
+        if self._negotiated_version < "2025-06-18":
+            d.pop("structuredContent", None)
+        return d
 
     async def _dispatch(self, message: dict) -> dict | None:
         """Route a single JSON-RPC message. Returns a response dict or None for notifications."""
@@ -215,6 +234,19 @@ class Server:
         if response is not None:
             self._send(response)
 
+    def _cancel_request(self, request_id: object) -> None:
+        """Handle notifications/cancelled: abort the in-flight request task.
+
+        Per spec no response is sent for a cancelled request (the task's
+        CancelledError propagates and _handle_message never reaches _send).
+        A subprocess already started by the tool keeps running to completion
+        in its worker thread; only the response is abandoned.
+        """
+        task = self._inflight.get(request_id)
+        if task is not None and not task.done():
+            logger.info("Request %r cancelled by client", request_id)
+            task.cancel()
+
     async def run(self) -> None:
         """Read JSON-RPC messages from stdin, dispatch, write responses to stdout.
 
@@ -246,9 +278,22 @@ class Server:
                 self._send(self._make_error(None, -32700, f"Parse error: {exc}"))
                 continue
 
+            if message.get("method") == "notifications/cancelled":
+                self._cancel_request((message.get("params") or {}).get("requestId"))
+                continue
+
             task = asyncio.create_task(self._handle_message(message))
             pending.add(task)
             task.add_done_callback(pending.discard)
+
+            msg_id = message.get("id")
+            if msg_id is not None:
+                self._inflight[msg_id] = task
+
+                def _untrack(_task: asyncio.Task, _id: object = msg_id) -> None:
+                    self._inflight.pop(_id, None)
+
+                task.add_done_callback(_untrack)
 
         # Let in-flight requests finish before shutting down.
         if pending:

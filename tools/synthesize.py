@@ -307,6 +307,7 @@ def synthesize(
             return {
                 "success": False,
                 "error": "litex_board is required for LiteX backend.",
+                "error_code": "invalid_input",
             }
         from tools.litex import litex_flow
 
@@ -323,14 +324,18 @@ def synthesize(
     if top_module:
         top_err = validate_top_module(top_module)
         if top_err:
-            return {"success": False, "error": top_err}
+            return {"success": False, "error": top_err, "error_code": "invalid_input"}
     else:
-        return {"success": False, "error": "top_module is required."}
+        return {
+            "success": False,
+            "error": "top_module is required.",
+            "error_code": "invalid_input",
+        }
 
     with temporary_workspace("synth_") as tmpdir:
         src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
-            return {"success": False, "error": err}
+            return {"success": False, "error": err, "error_code": "invalid_input"}
 
         out_json = os.path.join(tmpdir, "synth.json")
         ys_script = os.path.join(tmpdir, "synth.ys")
@@ -417,6 +422,9 @@ def synthesize(
             }
             if stdout_truncated:
                 output["stdout_truncated"] = True
+            if not success:
+                output["error"] = "Synthesis failed — see stdout/stderr."
+                output["error_code"] = "synthesis_failed"
             if files:
                 output["files"] = list(files.keys())
             if project_dir:
@@ -431,9 +439,11 @@ def synthesize(
             return {
                 "success": False,
                 "error": "'yosys' not found. Install it and ensure it is on PATH.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
                 "error": f"Synthesis timed out after {timeout} s.",
+                "error_code": "timeout",
             }

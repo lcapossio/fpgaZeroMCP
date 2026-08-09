@@ -118,6 +118,8 @@ class TestLspDiagnostics:
                 raise FileNotFoundError
             return _FakeProc(returncode=0)
 
+        # No WSL fallback either — force the verible path
+        monkeypatch.setattr("tools.lsp._wsl_has_verilator", lambda: False)
         monkeypatch.setattr(subprocess, "run", fake_run)
         r = get_diagnostics("module top; endmodule", language="verilog")
         # We should have tried verilator first, then verible-verilog-lint
@@ -902,9 +904,11 @@ class TestGithubMocked:
             )
 
         monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-        results = github.search_repos("uart")
-        assert len(results) == 1
-        assert "error" in results[0]
+        result = github.search_repos("uart")
+        # Errors are a dict (not a list) so the dispatcher flags isError
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert result["error_code"] == "network_error"
 
     def test_search_repos_transport_error(self, monkeypatch) -> None:
         import urllib.error
@@ -915,9 +919,10 @@ class TestGithubMocked:
             raise urllib.error.URLError("dns lookup failed")
 
         monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-        results = github.search_repos("uart")
-        assert len(results) == 1
-        assert "connection error" in results[0]["error"]
+        result = github.search_repos("uart")
+        assert isinstance(result, dict)
+        assert "connection error" in result["error"]
+        assert result["error_code"] == "network_error"
 
     def test_get_dict_rejects_list_response(self, monkeypatch) -> None:
         from registry import github

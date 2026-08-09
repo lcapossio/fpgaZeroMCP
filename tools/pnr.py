@@ -109,6 +109,7 @@ def place_and_route(
             return {
                 "success": False,
                 "error": "litex_board is required for LiteX backend.",
+                "error_code": "invalid_input",
             }
         from tools.litex import litex_build
 
@@ -133,6 +134,7 @@ def place_and_route(
         return {
             "success": False,
             "error": f"Unsupported PnR target '{target}'. Supported: {supported}",
+            "error_code": "invalid_input",
         }
 
     synth_cmd = SYNTH_CMDS.get(target)
@@ -140,12 +142,17 @@ def place_and_route(
         return {
             "success": False,
             "error": f"No Yosys synth command for target '{target}'",
+            "error_code": "invalid_input",
         }
     if not top_module:
-        return {"success": False, "error": "top_module is required."}
+        return {
+            "success": False,
+            "error": "top_module is required.",
+            "error_code": "invalid_input",
+        }
     top_err = validate_top_module(top_module)
     if top_err:
-        return {"success": False, "error": top_err}
+        return {"success": False, "error": top_err, "error_code": "invalid_input"}
 
     # Determine whether to use a persistent work_dir or a temp workspace
     use_persistent = bool(work_dir)
@@ -154,14 +161,14 @@ def place_and_route(
         assert work_dir is not None
         path_err = validate_path_in_roots(work_dir, "work_dir")
         if path_err:
-            return {"success": False, "error": path_err}
+            return {"success": False, "error": path_err, "error_code": "path_security"}
         os.makedirs(work_dir, exist_ok=True)
         persistent_dir = work_dir
 
     def _run_in(tmpdir: str) -> dict:
         src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
-            return {"success": False, "error": err}
+            return {"success": False, "error": err, "error_code": "invalid_input"}
 
         netlist_json = os.path.join(tmpdir, "netlist.json")
         ys_script = os.path.join(tmpdir, "synth.ys")
@@ -224,17 +231,21 @@ def place_and_route(
             return {
                 "success": False,
                 "error": "'yosys' not found. Install OSS CAD Suite.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
                 "error": f"Synthesis timed out after {synth_timeout} s.",
+                "error_code": "timeout",
             }
 
         if synth.returncode != 0:
             return {
                 "success": False,
                 "stage": "synthesis",
+                "error": "Synthesis failed — see stdout/stderr.",
+                "error_code": "synthesis_failed",
                 "stdout": synth.stdout,
                 "stderr": synth.stderr,
             }
@@ -244,6 +255,7 @@ def place_and_route(
                 "success": False,
                 "stage": "synthesis",
                 "error": "Yosys did not produce a netlist JSON.",
+                "error_code": "synthesis_failed",
                 "stdout": synth.stdout,
                 "stderr": synth.stderr,
             }
@@ -287,6 +299,7 @@ def place_and_route(
                     f"only {max(pnr_timeout, 0)} s remain for PnR. "
                     "Increase timeout or simplify the design."
                 ),
+                "error_code": "timeout",
                 "synth_log": synth.stdout,
             }
         try:
@@ -301,11 +314,13 @@ def place_and_route(
             return {
                 "success": False,
                 "error": f"'{NEXTPNR_BIN[target]}' not found. Install OSS CAD Suite.",
+                "error_code": "tool_not_found",
             }
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
                 "error": f"Place and route timed out after {pnr_timeout} s.",
+                "error_code": "timeout",
             }
 
         combined_output = pnr.stdout + pnr.stderr
@@ -338,6 +353,9 @@ def place_and_route(
         }
         if synth_trunc or pnr_trunc:
             result["logs_truncated"] = True
+        if not pnr_ok:
+            result["error"] = "Place and route failed — see pnr_stdout/pnr_stderr."
+            result["error_code"] = "pnr_failed"
 
         # Evaluate timing against board clock target
         if preset and preset.get("clock_mhz"):

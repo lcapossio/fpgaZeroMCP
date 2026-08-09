@@ -36,9 +36,17 @@ def _run_litex(board: str, args: list[str] | None, timeout: int) -> dict:
             "stderr": result.stderr,
         }
     except FileNotFoundError:
-        return {"success": False, "error": "LiteX entrypoint not found."}
+        return {
+            "success": False,
+            "error": "LiteX entrypoint not found.",
+            "error_code": "tool_not_found",
+        }
     except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"LiteX timed out after {timeout} s."}
+        return {
+            "success": False,
+            "error": f"LiteX timed out after {timeout} s.",
+            "error_code": "timeout",
+        }
 
 
 def litex_build(

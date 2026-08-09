@@ -170,6 +170,68 @@ def _get_dict(url: str, params: dict | None = None) -> dict:
     return data
 
 
+# Hard cap on tarball downloads — an FPGA IP repo should never approach this.
+_MAX_TARBALL_BYTES = 100 * 1024 * 1024
+
+
+def _request_bytes(
+    url: str,
+    *,
+    headers: dict | None = None,
+    timeout: int = 60,
+    max_bytes: int = _MAX_TARBALL_BYTES,
+) -> bytes:
+    """HTTP GET returning raw bytes, aborting past max_bytes."""
+    req = urllib.request.Request(url, headers=headers or _HEADERS, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = resp.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(
+                    f"Download exceeds {max_bytes // (1024 * 1024)} MB cap"
+                )
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+
+def _download_tarball_files(
+    owner: str, repo: str, ref: str, wanted: list[str]
+) -> dict[str, str] | None:
+    """Fetch the repo tarball once and extract the wanted paths.
+
+    One HTTP request instead of one per file — faster, atomic, and far
+    friendlier to API rate limits. Returns None on any failure so the
+    caller can fall back to per-file raw downloads.
+    """
+    import io
+    import tarfile
+
+    url = f"{GITHUB_API}/repos/{owner}/{repo}/tarball/{ref}"
+    try:
+        data = _request_bytes(url)
+        wanted_set = set(wanted)
+        out: dict[str, str] = {}
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+            for member in tf:
+                if not member.isfile():
+                    continue
+                # Strip the tarball's "<owner>-<repo>-<sha>/" root component
+                rel = member.name.split("/", 1)[1] if "/" in member.name else ""
+                if rel in wanted_set:
+                    fobj = tf.extractfile(member)
+                    if fobj is not None:
+                        out[rel] = fobj.read().decode("utf-8", errors="replace")
+        return out
+    except Exception as exc:
+        LOG.info("Tarball download failed (%s); falling back to per-file", exc)
+        return None
+
+
 def _download_raw(owner: str, repo: str, path: str, ref: str) -> str:
     # raw.githubusercontent.com doesn't need auth headers for public repos.
     url = f"{GITHUB_RAW}/{owner}/{repo}/{ref}/{path}"
@@ -237,7 +299,7 @@ def search_repos(
     query: str,
     language: str | None = None,
     max_results: int = 10,
-) -> list[dict]:
+) -> list[dict] | dict:
     """Search GitHub for open-source FPGA IP repositories (license checked at import)."""
     q = f"{query} topic:fpga"
     if language and language in _LANGUAGE_MAP:
@@ -254,9 +316,15 @@ def search_repos(
             },
         )
     except HTTPStatusError as e:
-        return [{"error": f"GitHub API error {e.code}: {e.body}"}]
+        return {
+            "error": f"GitHub API error {e.code}: {e.body}",
+            "error_code": "network_error",
+        }
     except TransportError as e:
-        return [{"error": f"GitHub API connection error: {e}"}]
+        return {
+            "error": f"GitHub API connection error: {e}",
+            "error_code": "network_error",
+        }
 
     results = []
     for item in data.get("items", [])[:max_results]:
@@ -287,7 +355,10 @@ def import_core(
     """
     parts = owner_repo.strip("/").split("/")
     if len(parts) != 2:
-        return {"error": "repo must be 'owner/repo', e.g. 'ultraembedded/core_uart'"}
+        return {
+            "error": "repo must be 'owner/repo', e.g. 'ultraembedded/core_uart'",
+            "error_code": "invalid_input",
+        }
     owner, repo = parts
     subdir_norm = subdir.strip("/")
 
@@ -295,9 +366,12 @@ def import_core(
     try:
         meta = _get_dict(f"{GITHUB_API}/repos/{owner}/{repo}")
     except HTTPStatusError as e:
-        return {"error": f"GitHub API {e.code}: {e.body}"}
+        return {
+            "error": f"GitHub API {e.code}: {e.body}",
+            "error_code": "network_error",
+        }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "error_code": "network_error"}
 
     license_id = (meta.get("license") or {}).get("spdx_id", "unknown")
     allowed = _allowed_licenses()
@@ -307,7 +381,8 @@ def import_core(
                 f"Repository license '{license_id}' is not in the allowed list: "
                 f"{', '.join(sorted(allowed))}. "
                 "Set FPGAZERO_ALLOWED_LICENSES to override."
-            )
+            ),
+            "error_code": "not_allowed",
         }
     if not ref:
         ref = meta.get("default_branch", "main")
@@ -316,12 +391,18 @@ def import_core(
     try:
         tree = _fetch_tree(owner, repo, ref)
     except Exception as e:
-        return {"error": f"Could not fetch file tree: {e}"}
+        return {
+            "error": f"Could not fetch file tree: {e}",
+            "error_code": "network_error",
+        }
 
     hdl_paths, core_paths = _filter_files(tree, subdir_norm)
     if not hdl_paths:
         scope = f"{owner_repo}/{subdir_norm}" if subdir_norm else owner_repo
-        return {"error": f"No HDL files (.v/.sv/.vhd) found in {scope}"}
+        return {
+            "error": f"No HDL files (.v/.sv/.vhd) found in {scope}",
+            "error_code": "file_not_found",
+        }
 
     # Try FuseSoC .core file for richer metadata
     fuse_manifest: dict | None = None
@@ -345,13 +426,23 @@ def import_core(
 
     downloaded: list[str] = []
     failed: list[dict] = []
+    tar_files = _download_tarball_files(owner, repo, ref, hdl_paths)
     for path in hdl_paths:
         rel_path = Path(path)
         if subdir_norm:
             rel_path = rel_path.relative_to(subdir_norm)
         try:
-            content = _download_raw(owner, repo, path, ref)
-            target = dest_dir / rel_path
+            if tar_files is not None:
+                if path not in tar_files:
+                    raise KeyError(f"'{path}' missing from tarball")
+                content = tar_files[path]
+            else:
+                content = _download_raw(owner, repo, path, ref)
+            target = (dest_dir / rel_path).resolve()
+            # Defense in depth: the tree API controls rel_path; never let it
+            # write outside the destination directory.
+            if not target.is_relative_to(dest_dir.resolve()):
+                raise ValueError(f"path escapes destination: {rel_path}")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
             downloaded.append(rel_path.as_posix())
@@ -365,6 +456,7 @@ def import_core(
         shutil.rmtree(dest_dir, ignore_errors=True)
         return {
             "error": f"All file downloads failed for {owner_repo}",
+            "error_code": "network_error",
             "failed_files": failed,
         }
 
@@ -383,6 +475,7 @@ def import_core(
                 f"{len(failed)} of {len(hdl_paths)} file(s) failed to download. "
                 f"Core not registered. Downloaded files kept in {dest_dir} for manual repair."
             ),
+            "error_code": "network_error",
         }
 
     # Build manifest (FuseSoC wins if available)

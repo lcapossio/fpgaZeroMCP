@@ -19,7 +19,8 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus)
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
-- **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running
+- **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running; `notifications/cancelled` aborts an in-flight call
+- **Machine-readable results**: `structuredContent` on tool results (MCP 2025-06-18) and a uniform `error_code` taxonomy for retry/fallback decisions
 - **IP core registry**: live search and import from GitHub with FuseSoC CAPI2 metadata
 - **Health check**: discover which OSS CAD Suite tools are installed and reachable
 

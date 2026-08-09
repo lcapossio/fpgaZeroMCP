@@ -89,11 +89,17 @@ class TestHealthcheck:
 
         from tools import healthcheck
 
-        # Pretend no binary is on PATH
+        # Pretend no binary is on PATH and no LiteX package either
         monkeypatch.setattr(shutil, "which", lambda _name: None)
+        monkeypatch.setattr(
+            healthcheck,
+            "_probe_litex",
+            lambda: {"tool": "litex", "description": "LiteX", "installed": False},
+        )
         result = healthcheck.check_tools()
         assert result["installed"] == 0
-        assert result["total"] == len(healthcheck._TOOLS)
+        # +1 for the litex package probe
+        assert result["total"] == len(healthcheck._TOOLS) + 1
         assert all(t["installed"] is False for t in result["tools"])
         assert all("path" not in t for t in result["tools"])
 

@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
+from tools.lint import _win_to_wsl_path, _wsl_has_verilator
 from tools.workspace import temporary_workspace
 
 HDL_SUFFIX = {
@@ -83,24 +85,29 @@ def format_hdl(code: str, language: str = "verilog") -> dict:
 def _verilator_diagnostics(tmpfile: str, language: str) -> dict:
     # -g2012 is an iverilog flag; Verilator's SystemVerilog switch is --sv
     flags = ["--sv"] if language == "systemverilog" else []
+    # Same WSL fallback as tools.lint: on Windows without a native verilator,
+    # run it inside WSL with translated paths.
+    use_wsl = not shutil.which("verilator") and _wsl_has_verilator()
+    target = _win_to_wsl_path(tmpfile) if use_wsl else tmpfile
+    base = ["wsl", "verilator"] if use_wsl else ["verilator"]
     try:
         r = subprocess.run(
-            ["verilator", "--lint-only", "--error-limit", "50"] + flags + [tmpfile],
+            base + ["--lint-only", "--error-limit", "50"] + flags + [target],
             capture_output=True,
             text=True,
             errors="replace",
             timeout=30,
         )
-        diags = _parse_verilator(r.stdout + r.stderr, tmpfile)
+        diags = _parse_verilator(r.stdout + r.stderr, target)
         return {
             "success": r.returncode == 0,
             "tool": "verilator",
             "diagnostics": diags,
         }
     except FileNotFoundError:
-        return {"error": "'verilator' not found"}
+        return {"error": "'verilator' not found", "error_code": "tool_not_found"}
     except subprocess.TimeoutExpired:
-        return {"error": "Verilator timed out after 30 s."}
+        return {"error": "Verilator timed out after 30 s.", "error_code": "timeout"}
 
 
 def _parse_verilator(output: str, filename: str) -> list[dict]:
@@ -152,10 +159,14 @@ def _verible_lint(tmpfile: str) -> dict:
             "error": (
                 "'verilator' and 'verible-verilog-lint' not found. "
                 "Install OSS CAD Suite."
-            )
+            ),
+            "error_code": "tool_not_found",
         }
     except subprocess.TimeoutExpired:
-        return {"error": "verible-verilog-lint timed out after 30 s."}
+        return {
+            "error": "verible-verilog-lint timed out after 30 s.",
+            "error_code": "timeout",
+        }
 
 
 def _parse_verible(output: str, filename: str) -> list[dict]:
@@ -203,9 +214,15 @@ def _verible_format(tmpfile: str, original: str) -> dict:
             "formatted": original,
         }
     except FileNotFoundError:
-        return {"error": "'verible-verilog-format' not found. Install OSS CAD Suite."}
+        return {
+            "error": "'verible-verilog-format' not found. Install OSS CAD Suite.",
+            "error_code": "tool_not_found",
+        }
     except subprocess.TimeoutExpired:
-        return {"error": "verible-verilog-format timed out after 30 s."}
+        return {
+            "error": "verible-verilog-format timed out after 30 s.",
+            "error_code": "timeout",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -232,9 +249,12 @@ def _ghdl_diagnostics(tmpfile: str) -> dict:
             "diagnostics": diags,
         }
     except FileNotFoundError:
-        return {"error": "'ghdl' not found. Install OSS CAD Suite."}
+        return {
+            "error": "'ghdl' not found. Install OSS CAD Suite.",
+            "error_code": "tool_not_found",
+        }
     except subprocess.TimeoutExpired:
-        return {"error": "GHDL timed out after 30 s."}
+        return {"error": "GHDL timed out after 30 s.", "error_code": "timeout"}
 
 
 def _parse_ghdl(output: str, filename: str) -> list[dict]:
@@ -282,6 +302,9 @@ def _vsg_format(tmpfile: str, original: str) -> dict:
             "changed": formatted.strip() != original.strip(),
         }
     except FileNotFoundError:
-        return {"error": "'vsg' not found. Install with: pip install vsg"}
+        return {
+            "error": "'vsg' not found. Install with: pip install vsg",
+            "error_code": "tool_not_found",
+        }
     except subprocess.TimeoutExpired:
-        return {"error": "vsg timed out after 30 s."}
+        return {"error": "vsg timed out after 30 s.", "error_code": "timeout"}

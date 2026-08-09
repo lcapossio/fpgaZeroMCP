@@ -128,7 +128,7 @@ Deletes old logs first, then trims by size (oldest first).
 
 ## Internals
 
-- Build logs are written to `no_commit/builds/<build_id>.log`
+- Build logs are written to `<data dir>/builds/<build_id>.log` (see File Locations)
 - A daemon thread monitors each subprocess and records the exit code
 - Large log tail reads use seek-from-end for efficiency
 - Thread-safe via `threading.Lock`
