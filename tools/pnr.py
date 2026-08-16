@@ -9,9 +9,11 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 from uuid import uuid4
 
 from tools.boards import get_board_preset
+from tools.progress import make_reporter
 from tools.synthesize import (
     SYNTH_CMDS,
     validate_path_in_roots,
@@ -83,6 +85,7 @@ def place_and_route(
     litex_board: str | None = None,
     litex_args: list[str] | None = None,
     return_bitstream_b64: bool = False,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict:
     """Synthesize HDL with Yosys then place-and-route with nextpnr.
 
@@ -103,7 +106,10 @@ def place_and_route(
     return_bitstream_b64: also include the bitstream as base64 in the response.
                  By default only bitstream_path (a file on disk, ready for
                  program_fpga) is returned to keep the response small.
+    progress: optional callback (fraction 0..1, message) invoked at phase
+              boundaries; exceptions from it are swallowed.
     """
+    report = make_reporter(progress)
     if backend == "litex":
         if not litex_board:
             return {
@@ -114,7 +120,10 @@ def place_and_route(
         from tools.litex import litex_build
 
         result = litex_build(
-            board=litex_board, args=litex_args or [], timeout=max(timeout, 300)
+            board=litex_board,
+            args=litex_args or [],
+            timeout=max(timeout, 300),
+            progress=progress,
         )
         result["backend"] = "litex"
         result["note"] = (
@@ -169,6 +178,7 @@ def place_and_route(
         src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
             return {"success": False, "error": err, "error_code": "invalid_input"}
+        report(0.05, "sources resolved")
 
         netlist_json = os.path.join(tmpdir, "netlist.json")
         ys_script = os.path.join(tmpdir, "synth.ys")
@@ -219,6 +229,7 @@ def place_and_route(
 
         deadline = _time.monotonic() + timeout
         synth_timeout = min(max(timeout // 3, 30), timeout)
+        report(0.1, "running yosys synthesis")
         try:
             synth = subprocess.run(
                 ["yosys", "-s", ys_script],
@@ -259,6 +270,8 @@ def place_and_route(
                 "stdout": synth.stdout,
                 "stderr": synth.stderr,
             }
+
+        report(0.5, "synthesis complete, starting place and route")
 
         # Resolve constraints: explicit string > auto-detect from project_dir
         effective_cst: str | None = None
@@ -323,6 +336,7 @@ def place_and_route(
                 "error_code": "timeout",
             }
 
+        report(0.9, "place and route finished, collecting results")
         combined_output = pnr.stdout + pnr.stderr
         pnr_ok = pnr.returncode == 0
 
@@ -392,6 +406,7 @@ def place_and_route(
                         "ascii"
                     )
 
+        report(1.0, "place and route complete")
         return result
 
     if use_persistent:

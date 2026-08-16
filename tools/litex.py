@@ -6,7 +6,9 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
+from tools.progress import make_reporter
 from tools.workspace import data_root, temporary_workspace
 
 _BOARD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
@@ -23,12 +25,20 @@ def _build_litex_cmd(board: str, args: list[str] | None) -> list[str]:
     return [sys.executable, "-m", f"litex_boards.targets.{board}"] + (args or [])
 
 
-def _run_litex(board: str, args: list[str] | None, timeout: int) -> dict:
+def _run_litex(
+    board: str,
+    args: list[str] | None,
+    timeout: int,
+    progress: Callable[[float, str], None] | None = None,
+) -> dict:
     cmd = _build_litex_cmd(board, args)
+    report = make_reporter(progress)
     try:
+        report(0.1, f"running litex target {board}")
         result = subprocess.run(
             cmd, capture_output=True, text=True, errors="replace", timeout=timeout
         )
+        report(1.0, "litex run complete")
         return {
             "success": result.returncode == 0,
             "cmd": cmd,
@@ -54,6 +64,7 @@ def litex_build(
     args: list[str] | None = None,
     output_dir: str | None = None,
     timeout: int = 600,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict:
     """Run LiteX board target with --build. Returns logs and output directory."""
     with temporary_workspace("litex_build_"):
@@ -70,7 +81,7 @@ def litex_build(
         if "--output-dir" not in build_args:
             build_args += ["--output-dir", str(out_dir)]
 
-        result = _run_litex(board, build_args, timeout)
+        result = _run_litex(board, build_args, timeout, progress)
         result["output_dir"] = str(out_dir)
         return result
 
@@ -80,6 +91,7 @@ def litex_soc(
     args: list[str] | None = None,
     output_dir: str | None = None,
     timeout: int = 300,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict:
     """Generate LiteX SoC without building gateware."""
     with temporary_workspace("litex_soc_"):
@@ -99,7 +111,7 @@ def litex_soc(
         if "--output-dir" not in soc_args:
             soc_args += ["--output-dir", str(out_dir)]
 
-        result = _run_litex(board, soc_args, timeout)
+        result = _run_litex(board, soc_args, timeout, progress)
         result["output_dir"] = str(out_dir)
         return result
 
@@ -108,6 +120,7 @@ def litex_flow(
     board: str,
     args: list[str] | None = None,
     timeout: int = 600,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict:
     """Generic LiteX flow runner with caller-provided args."""
-    return _run_litex(board, args or [], timeout)
+    return _run_litex(board, args or [], timeout, progress)

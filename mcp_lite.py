@@ -28,6 +28,7 @@ The public API mirrors what server.py used from `mcp.server.Server`:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import sys
@@ -35,6 +36,14 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
+
+# progressToken of the tools/call currently executing in this context.
+# Set per-request in _handle_tools_call; propagates into asyncio.to_thread
+# worker threads (contextvars are copied into the thread), so a tool running
+# in a thread can report progress for the right request.
+current_progress_token: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "current_progress_token", default=None
+)
 
 # Protocol revisions we implement, newest first. If the client requests one
 # of these we echo it back; otherwise we answer with our latest (per spec).
@@ -113,6 +122,9 @@ class Server:
     _call_handler: CallToolHandler | None = field(default=None, init=False)
     _negotiated_version: str = field(default=LATEST_PROTOCOL_VERSION, init=False)
     _inflight: dict = field(default_factory=dict, init=False, repr=False)
+    _loop: asyncio.AbstractEventLoop | None = field(
+        default=None, init=False, repr=False
+    )
 
     def list_tools(self) -> Callable[[ListToolsHandler], ListToolsHandler]:
         """Decorator: register the list_tools handler."""
@@ -171,7 +183,12 @@ class Server:
             raise RuntimeError("call_tool handler not registered")
         name = params.get("name", "")
         args = params.get("arguments", {}) or {}
-        result = await self._call_handler(name, args)
+        progress_token = (params.get("_meta") or {}).get("progressToken")
+        ctx_token = current_progress_token.set(progress_token)
+        try:
+            result = await self._call_handler(name, args)
+        finally:
+            current_progress_token.reset(ctx_token)
         d = result.to_dict()
         # structuredContent was introduced in 2025-06-18; don't send it to
         # clients that negotiated an older revision.
@@ -229,6 +246,35 @@ class Server:
         sys.stdout.write(json.dumps(response) + "\n")
         sys.stdout.flush()
 
+    def send_progress(
+        self, progress: float, total: float | None = None, message: str = ""
+    ) -> None:
+        """Emit a notifications/progress for the current tools/call.
+
+        No-op when the client didn't send a progressToken. Safe to call from
+        tool code running in a worker thread (asyncio.to_thread): the write is
+        marshalled onto the event loop thread so it cannot interleave with a
+        response being sent concurrently.
+        """
+        token = current_progress_token.get()
+        if token is None:
+            return
+        notif_params: dict = {"progressToken": token, "progress": progress}
+        if total is not None:
+            notif_params["total"] = total
+        if message:
+            notif_params["message"] = message
+        notification = {
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": notif_params,
+        }
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self._send, notification)
+        else:
+            self._send(notification)
+
     async def _handle_message(self, message: dict) -> None:
         response = await self._dispatch(message)
         if response is not None:
@@ -255,6 +301,7 @@ class Server:
         (synthesize, place_and_route) is still running.
         """
         loop = asyncio.get_running_loop()
+        self._loop = loop
 
         # asyncio doesn't wrap stdin/stdout as streams on Windows cleanly.
         # Use run_in_executor with blocking readline — simpler and portable.
