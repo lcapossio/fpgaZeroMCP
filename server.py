@@ -326,7 +326,7 @@ async def handle_list_tools() -> list[Tool]:
             name="simulate",
             description=(
                 "Compile and simulate HDL using Icarus Verilog (iverilog + vvp) or GHDL (VHDL). "
-                "Provide the design source and a separate testbench. "
+                "Provide the design (code, files, or project_dir) and a separate testbench. "
                 "Returns all $display/$monitor output (Verilog) or report output (VHDL), "
                 "a pass/fail verdict, and a structured VCD waveform summary. "
                 "Set return_vcd=true to include the raw VCD text."
@@ -334,7 +334,19 @@ async def handle_list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "HDL design source"},
+                    "code": {
+                        "type": "string",
+                        "description": "HDL design source (single-file mode)",
+                    },
+                    "files": {
+                        "type": "object",
+                        "description": "Multi-file mode: mapping of filename to source code",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "project_dir": {
+                        "type": "string",
+                        "description": "Disk mode: path to directory containing HDL source files",
+                    },
                     "testbench": {
                         "type": "string",
                         "description": "HDL testbench source",
@@ -359,7 +371,7 @@ async def handle_list_tools() -> list[Tool]:
                         ),
                     },
                 },
-                "required": ["code", "testbench"],
+                "required": ["testbench"],
             },
         ),
         Tool(
@@ -845,11 +857,13 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
 
                 result = await asyncio.to_thread(
                     simulate,
-                    code=arguments["code"],
+                    code=arguments.get("code", ""),
                     testbench=arguments["testbench"],
                     language=arguments.get("language", "verilog"),
                     timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
                     return_vcd=arguments.get("return_vcd", False),
+                    files=arguments.get("files"),
+                    project_dir=arguments.get("project_dir"),
                 )
             case "search_github_cores":
                 from registry.github import search_repos
