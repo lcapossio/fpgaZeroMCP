@@ -11,7 +11,7 @@ from mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP", version="0.5.0")
+app = Server("fpgaZeroMCP", version="0.6.0")
 
 
 def _tool_progress(fraction: float, message: str) -> None:
