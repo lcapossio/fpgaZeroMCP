@@ -54,6 +54,7 @@ Start, monitor, and cancel long-running EDA builds in the background.
 - Simulation/lint: `ghdl`, `iverilog`, `vvp`, `verilator`, `verible-verilog-lint`
 - Formal verification: `sby`
 - Programming: `iceprog`, `openFPGALoader`, `ecpprog`
+- Vendor flows: `vivado` (batch mode, e.g. `vivado -mode batch -source build.tcl`)
 - Python: only `python -m litex_boards.*` or `python -m litex.*` (all Python versions accepted)
 
 **Blocked:** `python -c`, arbitrary scripts, non-EDA binaries.

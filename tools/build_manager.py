@@ -135,6 +135,8 @@ _ALLOWED_COMMANDS = {
     "iceprog",
     "openFPGALoader",
     "ecpprog",
+    # Vendor flows (batch mode; typically driven by a TCL script)
+    "vivado",
 }
 
 # Python is handled separately via prefix match to avoid version pinning

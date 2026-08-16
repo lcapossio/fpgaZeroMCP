@@ -16,7 +16,8 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Filelist support**: `files.f`/`sources.f` with `+incdir+`, `+define+`, and nested `-f` directives
 - **Board presets**: 11 built-in boards (iCEBreaker, ULX3S, TinyFPGA BX, Tang Nano, etc.) — sets target/device/package/clock automatically
 - **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst` in your project directory
-- **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus)
+- **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus/Xilinx)
+- **Vivado**: batch runs through `start_build`, Xilinx builds through LiteX, structured Vivado log parsing in `build_status`
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
 - **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running; `notifications/cancelled` aborts an in-flight call

@@ -17,6 +17,7 @@ _DEFAULT_PROGRAMMER = {
     "ecp5": "openFPGALoader",
     "nexus": "openFPGALoader",
     "gowin": "openFPGALoader",
+    "xilinx": "openFPGALoader",
 }
 
 
