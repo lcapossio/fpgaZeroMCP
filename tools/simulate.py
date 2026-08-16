@@ -6,47 +6,76 @@ import glob
 import os
 import re
 import subprocess
+from pathlib import Path
 
+from tools.synthesize import _resolve_sources
 from tools.workspace import temporary_workspace
 
 
 def simulate(
-    code: str,
-    testbench: str,
+    code: str = "",
+    testbench: str = "",
     language: str = "verilog",
     timeout: int = 60,
     return_vcd: bool = False,
+    files: dict[str, str] | None = None,
+    project_dir: str | None = None,
 ) -> dict:
     """Compile and run an HDL simulation.
 
     Verilog/SystemVerilog: Icarus Verilog (iverilog + vvp)
     VHDL:                  GHDL (ghdl -a, ghdl -e, ghdl -r)
 
+    Design source input (provide exactly one):
+      code:        single HDL source as a string
+      files:       dict of filename → source code for multi-file designs
+      project_dir: path to a directory containing HDL files on disk
+
+    testbench is always a source string and is required.
     return_vcd: include the raw VCD text in the response (can be large);
                 by default only a structured summary is returned.
     """
+    if not testbench:
+        return {
+            "success": False,
+            "error": "testbench is required.",
+            "error_code": "invalid_input",
+        }
     if language == "vhdl":
-        return _simulate_vhdl(code, testbench, timeout, return_vcd)
-    return _simulate_verilog(code, testbench, timeout, return_vcd)
+        return _simulate_vhdl(code, testbench, timeout, return_vcd, files, project_dir)
+    return _simulate_verilog(
+        code, testbench, language, timeout, return_vcd, files, project_dir
+    )
 
 
 def _simulate_verilog(
-    code: str, testbench: str, timeout: int, return_vcd: bool = False
+    code: str,
+    testbench: str,
+    language: str,
+    timeout: int,
+    return_vcd: bool = False,
+    files: dict[str, str] | None = None,
+    project_dir: str | None = None,
 ) -> dict:
     """Compile and run a Verilog simulation using Icarus Verilog (iverilog + vvp)."""
     with temporary_workspace("sim_") as tmpdir:
-        design_file = os.path.join(tmpdir, "design.v")
+        design_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
+        if err:
+            return {"success": False, "error": err, "error_code": "invalid_input"}
+
         tb_file = os.path.join(tmpdir, "testbench.v")
         out_file = os.path.join(tmpdir, "sim.vvp")
-
-        with open(design_file, "w", encoding="utf-8") as f:
-            f.write(code)
         with open(tb_file, "w", encoding="utf-8") as f:
             f.write(testbench)
 
+        cmd = ["iverilog", "-g2012", "-o", out_file]
+        if project_dir:
+            cmd += ["-I", str(Path(project_dir).resolve())]
+        cmd += [tb_file, *design_paths]
+
         try:
             compile_result = subprocess.run(
-                ["iverilog", "-g2012", "-o", out_file, tb_file, design_file],
+                cmd,
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -99,7 +128,12 @@ def _simulate_verilog(
 
 
 def _simulate_vhdl(
-    code: str, testbench: str, timeout: int, return_vcd: bool = False
+    code: str,
+    testbench: str,
+    timeout: int,
+    return_vcd: bool = False,
+    files: dict[str, str] | None = None,
+    project_dir: str | None = None,
 ) -> dict:
     """Compile and run a VHDL simulation using GHDL."""
     # Check for testbench entity before invoking GHDL
@@ -115,33 +149,35 @@ def _simulate_vhdl(
         }
 
     with temporary_workspace("sim_vhdl_") as tmpdir:
-        design_file = os.path.join(tmpdir, "design.vhd")
-        tb_file = os.path.join(tmpdir, "testbench.vhd")
+        design_paths, err = _resolve_sources(code, files, project_dir, "vhdl", tmpdir)
+        if err:
+            return {"success": False, "error": err, "error_code": "invalid_input"}
 
-        with open(design_file, "w", encoding="utf-8") as f:
-            f.write(code)
+        tb_file = os.path.join(tmpdir, "testbench.vhd")
         with open(tb_file, "w", encoding="utf-8") as f:
             f.write(testbench)
 
         try:
-            # Analyze design
-            analyze_design = subprocess.run(
-                ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, design_file],
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=timeout,
-            )
-            if analyze_design.returncode != 0:
-                return {
-                    "success": False,
-                    "tool": "ghdl",
-                    "stage": "analyze_design",
-                    "error": "VHDL analysis of the design failed — see stderr.",
-                    "error_code": "syntax_error",
-                    "stdout": analyze_design.stdout,
-                    "stderr": analyze_design.stderr,
-                }
+            # Analyze design files (in filelist/glob order for multi-file input)
+            for design_file in design_paths:
+                analyze_design = subprocess.run(
+                    ["ghdl", "-a", "--std=08", "--workdir=" + tmpdir, design_file],
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=timeout,
+                )
+                if analyze_design.returncode != 0:
+                    return {
+                        "success": False,
+                        "tool": "ghdl",
+                        "stage": "analyze_design",
+                        "file": os.path.basename(design_file),
+                        "error": "VHDL analysis of the design failed — see stderr.",
+                        "error_code": "syntax_error",
+                        "stdout": analyze_design.stdout,
+                        "stderr": analyze_design.stderr,
+                    }
 
             # Analyze testbench
             analyze_tb = subprocess.run(

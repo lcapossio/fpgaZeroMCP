@@ -11,7 +11,16 @@ from mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP", version="0.5.0")
+app = Server("fpgaZeroMCP", version="0.6.0")
+
+
+def _tool_progress(fraction: float, message: str) -> None:
+    """Bridge tool progress callbacks to MCP notifications/progress.
+
+    No-op unless the client sent a progressToken with the tools/call.
+    Safe to invoke from asyncio.to_thread worker threads.
+    """
+    app.send_progress(fraction, total=1.0, message=message)
 
 
 # Lazy singletons — CoreRegistry does disk I/O and BuildManager allocates a
@@ -317,7 +326,7 @@ async def handle_list_tools() -> list[Tool]:
             name="simulate",
             description=(
                 "Compile and simulate HDL using Icarus Verilog (iverilog + vvp) or GHDL (VHDL). "
-                "Provide the design source and a separate testbench. "
+                "Provide the design (code, files, or project_dir) and a separate testbench. "
                 "Returns all $display/$monitor output (Verilog) or report output (VHDL), "
                 "a pass/fail verdict, and a structured VCD waveform summary. "
                 "Set return_vcd=true to include the raw VCD text."
@@ -325,7 +334,19 @@ async def handle_list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "HDL design source"},
+                    "code": {
+                        "type": "string",
+                        "description": "HDL design source (single-file mode)",
+                    },
+                    "files": {
+                        "type": "object",
+                        "description": "Multi-file mode: mapping of filename to source code",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "project_dir": {
+                        "type": "string",
+                        "description": "Disk mode: path to directory containing HDL source files",
+                    },
                     "testbench": {
                         "type": "string",
                         "description": "HDL testbench source",
@@ -350,7 +371,7 @@ async def handle_list_tools() -> list[Tool]:
                         ),
                     },
                 },
-                "required": ["code", "testbench"],
+                "required": ["testbench"],
             },
         ),
         Tool(
@@ -807,6 +828,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
                     timeout=_clamp_timeout(arguments.get("timeout", 120), 120),
+                    progress=_tool_progress,
                 )
             case "place_and_route":
                 from tools.pnr import place_and_route
@@ -830,17 +852,20 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
                     return_bitstream_b64=arguments.get("return_bitstream_b64", False),
+                    progress=_tool_progress,
                 )
             case "simulate":
                 from tools.simulate import simulate
 
                 result = await asyncio.to_thread(
                     simulate,
-                    code=arguments["code"],
+                    code=arguments.get("code", ""),
                     testbench=arguments["testbench"],
                     language=arguments.get("language", "verilog"),
                     timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
                     return_vcd=arguments.get("return_vcd", False),
+                    files=arguments.get("files"),
+                    project_dir=arguments.get("project_dir"),
                 )
             case "search_github_cores":
                 from registry.github import search_repos
@@ -902,6 +927,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     args=arguments.get("args"),
                     output_dir=arguments.get("output_dir"),
                     timeout=_clamp_timeout(arguments.get("timeout", 600), 600),
+                    progress=_tool_progress,
                 )
             case "litex_soc":
                 from tools.litex import litex_soc
@@ -912,6 +938,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     args=arguments.get("args"),
                     output_dir=arguments.get("output_dir"),
                     timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
+                    progress=_tool_progress,
                 )
             case "litex_flow":
                 from tools.litex import litex_flow
@@ -921,6 +948,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     board=arguments["board"],
                     args=arguments.get("args"),
                     timeout=_clamp_timeout(arguments.get("timeout", 600), 600),
+                    progress=_tool_progress,
                 )
             case "start_build":
                 result = _builds().start(

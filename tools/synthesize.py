@@ -8,7 +8,9 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Callable
 
+from tools.progress import make_reporter
 from tools.textutil import truncate_log
 from tools.workspace import temporary_workspace
 
@@ -292,6 +294,7 @@ def synthesize(
     litex_board: str | None = None,
     litex_args: list[str] | None = None,
     timeout: int = 120,
+    progress: Callable[[float, str], None] | None = None,
 ) -> dict:
     """Synthesize HDL using Yosys or LiteX backend.
 
@@ -301,7 +304,10 @@ def synthesize(
       project_dir: path to a directory containing HDL files on disk
 
     language: "verilog" (default), "systemverilog", or "vhdl".
+    progress: optional callback (fraction 0..1, message) invoked at phase
+              boundaries; exceptions from it are swallowed.
     """
+    report = make_reporter(progress)
     if backend == "litex":
         if not litex_board:
             return {
@@ -312,7 +318,10 @@ def synthesize(
         from tools.litex import litex_flow
 
         litex_result = litex_flow(
-            board=litex_board, args=litex_args or [], timeout=max(timeout, 120)
+            board=litex_board,
+            args=litex_args or [],
+            timeout=max(timeout, 120),
+            progress=progress,
         )
         litex_result["backend"] = "litex"
         litex_result["note"] = (
@@ -336,6 +345,7 @@ def synthesize(
         src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
             return {"success": False, "error": err, "error_code": "invalid_input"}
+        report(0.1, "sources resolved")
 
         out_json = os.path.join(tmpdir, "synth.json")
         ys_script = os.path.join(tmpdir, "synth.ys")
@@ -389,6 +399,7 @@ def synthesize(
             f.write(script)
 
         try:
+            report(0.2, "running yosys synthesis")
             result = subprocess.run(
                 ["yosys", "-s", ys_script],
                 capture_output=True,
@@ -396,6 +407,7 @@ def synthesize(
                 errors="replace",
                 timeout=timeout,
             )
+            report(0.9, "yosys finished, parsing results")
 
             modules: list[str] = []
             if os.path.exists(out_json):
@@ -433,6 +445,7 @@ def synthesize(
                 output["source_files"] = [
                     os.path.relpath(p, resolved_dir) for p in src_paths
                 ]
+            report(1.0, "synthesis complete")
             return output
 
         except FileNotFoundError:

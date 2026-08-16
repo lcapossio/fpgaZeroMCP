@@ -22,6 +22,7 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
 - **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running; `notifications/cancelled` aborts an in-flight call
 - **Machine-readable results**: `structuredContent` on tool results (MCP 2025-06-18) and a uniform `error_code` taxonomy for retry/fallback decisions
+- **Progress notifications**: `notifications/progress` at phase boundaries of synthesis, place-and-route, and LiteX runs when the client sends a `progressToken`
 - **IP core registry**: live search and import from GitHub with FuseSoC CAPI2 metadata
 - **Health check**: discover which OSS CAD Suite tools are installed and reachable
 
@@ -173,7 +174,7 @@ Add to your MCP settings (Settings → MCP Servers):
 
 | Tool | Description |
 |---|---|
-| `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Returns verdict + VCD summary |
+| `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Accepts `code`, `files`, or `project_dir`. Returns verdict + VCD summary |
 | `synthesize` | Yosys synthesis with resource stats. Accepts `code`, `files`, or `project_dir`. Verilog, SV, VHDL |
 | `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
