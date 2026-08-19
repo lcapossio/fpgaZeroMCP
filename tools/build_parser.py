@@ -236,31 +236,28 @@ _UTIL_NEXTPNR = [
     ),
 ]
 
+
+def _vivado_util_row(label_re: str, num: str = r"[\d,]+") -> re.Pattern:
+    """Vivado utilization table row, both layouts:
+      old:  | Resource | Used | Fixed | Available | Util% |
+      new:  | Resource | Used | Fixed | Prohibited | Available | Util% |
+    Captures Used and Available; the trailing Util% column anchors the match
+    so the optional Prohibited column can't shift what gets captured.
+    """
+    return re.compile(
+        label_re
+        + rf"\s*\|\s*({num})\s*\|\s*{num}\s*\|\s*(?:{num}\s*\|\s*)?({num})"
+        + r"\s*\|\s*[\d.]+\s*\|"
+    )
+
+
 _UTIL_VIVADO = [
-    # Real Vivado format: | Resource | Used | Fixed | Available | Util% |
-    # Skip the "Fixed" column with a non-capturing group before capturing "Available".
-    (
-        re.compile(
-            r"(?:Slice |CLB )LUTs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"
-        ),
-        "luts",
-        2,
-    ),
-    (
-        re.compile(
-            r"(?:Slice |CLB )Registers?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"
-        ),
-        "ffs",
-        2,
-    ),
-    (
-        re.compile(r"Block RAM Tile\s*\|\s*([\d.]+)\s*\|\s*[\d.]+\s*\|\s*([\d.]+)"),
-        "brams",
-        2,
-    ),
-    (re.compile(r"DSPs?\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "dsps", 2),
-    (re.compile(r"Bonded IOB\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "ios", 2),
-    (re.compile(r"URAM\s*\|\s*([\d,]+)\s*\|\s*[\d,]+\s*\|\s*([\d,]+)"), "urams", 2),
+    (_vivado_util_row(r"(?:Slice |CLB )LUTs?"), "luts", 2),
+    (_vivado_util_row(r"(?:Slice |CLB )Registers?"), "ffs", 2),
+    (_vivado_util_row(r"Block RAM Tile", r"[\d,.]+"), "brams", 2),
+    (_vivado_util_row(r"DSPs?"), "dsps", 2),
+    (_vivado_util_row(r"Bonded IOB"), "ios", 2),
+    (_vivado_util_row(r"URAM"), "urams", 2),
 ]
 
 _UTIL_QUARTUS = [
@@ -332,10 +329,10 @@ _RE_QUARTUS_HOLD_SLACK = re.compile(
 )
 
 _SLACK_PATTERNS = [
-    ("wns_ns", re.compile(r"WNS\s*[\(:]\s*(-?[\d.]+)\s*ns", re.I)),
-    ("tns_ns", re.compile(r"TNS\s*[\(:]\s*(-?[\d.]+)\s*ns", re.I)),
-    ("whs_ns", re.compile(r"WHS\s*[\(:]\s*(-?[\d.]+)\s*ns", re.I)),
-    ("ths_ns", re.compile(r"THS\s*[\(:]\s*(-?[\d.]+)\s*ns", re.I)),
+    ("wns_ns", re.compile(r"WNS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
+    ("tns_ns", re.compile(r"TNS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
+    ("whs_ns", re.compile(r"WHS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
+    ("ths_ns", re.compile(r"THS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
     ("wns_ns", re.compile(r"Slack\s+histogram.*?worst\s*=?\s*(-?[\d.]+)", re.I)),
 ]
 

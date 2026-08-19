@@ -67,6 +67,31 @@ BOARD_PRESETS: dict[str, dict] = {
         "package": "CABGA256",
         "clock_mhz": 25.0,
     },
+    # ----- Xilinx boards (Vivado backend; device = full part number) -----
+    "arty_a7_35": {
+        "target": "xilinx",
+        "device": "xc7a35ticsg324-1L",
+        "package": "",
+        "clock_mhz": 100.0,
+    },
+    "arty_a7_100": {
+        "target": "xilinx",
+        "device": "xc7a100tcsg324-1",
+        "package": "",
+        "clock_mhz": 100.0,
+    },
+    "basys3": {
+        "target": "xilinx",
+        "device": "xc7a35tcpg236-1",
+        "package": "",
+        "clock_mhz": 100.0,
+    },
+    "nexys_a7_100": {
+        "target": "xilinx",
+        "device": "xc7a100tcsg324-1",
+        "package": "",
+        "clock_mhz": 100.0,
+    },
     # ----- Gowin boards -----
     "tangnano_9k": {
         "target": "gowin",

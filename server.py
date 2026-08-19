@@ -11,7 +11,7 @@ from mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP", version="0.6.0")
+app = Server("fpgaZeroMCP", version="0.7.0")
 
 
 def _tool_progress(fraction: float, message: str) -> None:
@@ -217,19 +217,21 @@ async def handle_list_tools() -> list[Tool]:
         Tool(
             name="place_and_route",
             description=(
-                "Synthesize HDL with Yosys then place-and-route with nextpnr in one step. "
+                "Full RTL-to-bitstream flow in one step. Open targets (ice40/ecp5/"
+                "nexus/gowin) use Yosys + nextpnr; target=xilinx uses Vivado batch mode "
+                "with auto-generated TCL (synth_design, place, route, write_bitstream). "
                 "Provide source as: code (single string), files (dict of filename→source), "
                 "or project_dir (path to HDL files on disk). "
                 "If backend=litex, runs LiteX build and ignores HDL inputs. "
-                "Returns max frequency, critical path, resource utilization, and "
+                "Returns max frequency, slack, resource utilization, and "
                 "bitstream_path — a file on disk ready for program_fpga. "
-                "Set return_bitstream_b64=true to also get the bitstream inline. "
-                "Supported targets: ice40, ecp5, nexus, gowin.\n"
+                "Set return_bitstream_b64=true to also get the bitstream inline.\n"
                 "Common device/package values:\n"
-                "  ice40: device=hx1k|hx8k|up5k|lp1k  package=tq144|qn84|sg48|cm81\n"
-                "  ecp5:  device=25k|45k|85k            package=CABGA256|CABGA381\n"
-                "  nexus: device=LIFCL-40-9BG400C       (package embedded in device string)\n"
-                "  gowin: device=GW1N-UV4LQ144C6/I5     (package embedded in device string)"
+                "  ice40:  device=hx1k|hx8k|up5k|lp1k  package=tq144|qn84|sg48|cm81\n"
+                "  ecp5:   device=25k|45k|85k            package=CABGA256|CABGA381\n"
+                "  nexus:  device=LIFCL-40-9BG400C       (package embedded in device string)\n"
+                "  gowin:  device=GW1N-UV4LQ144C6/I5     (package embedded in device string)\n"
+                "  xilinx: device=xc7a35tcpg236-1        (full part number; constraints = XDC text)"
             ),
             inputSchema={
                 "type": "object",
@@ -259,12 +261,15 @@ async def handle_list_tools() -> list[Tool]:
                     },
                     "target": {
                         "type": "string",
-                        "enum": ["ice40", "ecp5", "nexus", "gowin"],
-                        "description": "FPGA family",
+                        "enum": ["ice40", "ecp5", "nexus", "gowin", "xilinx"],
+                        "description": "FPGA family (xilinx uses the Vivado backend)",
                     },
                     "device": {
                         "type": "string",
-                        "description": "Device variant, e.g. 'hx1k', '25k', 'LIFCL-40-9BG400C'",
+                        "description": (
+                            "Device variant, e.g. 'hx1k', '25k', 'LIFCL-40-9BG400C'; "
+                            "for xilinx the full part number, e.g. 'xc7a35tcpg236-1'"
+                        ),
                     },
                     "package": {
                         "type": "string",
@@ -272,7 +277,10 @@ async def handle_list_tools() -> list[Tool]:
                     },
                     "constraints": {
                         "type": "string",
-                        "description": "Optional pin constraints (PCF/LPF/PDC/CST text)",
+                        "description": (
+                            "Optional pin constraints (PCF/LPF/PDC/CST text; "
+                            "XDC text for the Vivado backend)"
+                        ),
                     },
                     "timeout": {
                         "type": "integer",
@@ -281,9 +289,11 @@ async def handle_list_tools() -> list[Tool]:
                     },
                     "backend": {
                         "type": "string",
-                        "enum": ["yosys", "litex"],
+                        "enum": ["yosys", "vivado", "litex"],
                         "default": "yosys",
-                        "description": "PnR backend",
+                        "description": (
+                            "PnR backend. target=xilinx selects vivado automatically."
+                        ),
                     },
                     "litex_board": {
                         "type": "string",

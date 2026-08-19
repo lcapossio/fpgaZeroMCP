@@ -14,10 +14,10 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Multi-language**: Verilog, SystemVerilog, and VHDL (via ghdl-yosys-plugin)
 - **Three input modes**: inline `code` string, multi-file `files` dict, or `project_dir` path on disk
 - **Filelist support**: `files.f`/`sources.f` with `+incdir+`, `+define+`, and nested `-f` directives
-- **Board presets**: 11 built-in boards (iCEBreaker, ULX3S, TinyFPGA BX, Tang Nano, etc.) — sets target/device/package/clock automatically
-- **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst` in your project directory
+- **Board presets**: 15 built-in boards (iCEBreaker, ULX3S, TinyFPGA BX, Tang Nano, Arty A7, Basys3, etc.) — sets target/device/package/clock automatically
+- **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst`/`.xdc` in your project directory
 - **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus/Xilinx)
-- **Vivado**: batch runs through `start_build`, Xilinx builds through LiteX, structured Vivado log parsing in `build_status`
+- **First-class Vivado flow**: `place_and_route` with `target="xilinx"` runs the full Vivado batch flow (auto-generated TCL: synth, place, route, `write_bitstream`) — no TCL knowledge needed; plus raw batch runs through `start_build`, Xilinx builds through LiteX, and structured Vivado log parsing in `build_status`
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
 - **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running; `notifications/cancelled` aborts an in-flight call
@@ -176,7 +176,7 @@ Add to your MCP settings (Settings → MCP Servers):
 |---|---|
 | `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Accepts `code`, `files`, or `project_dir`. Returns verdict + VCD summary |
 | `synthesize` | Yosys synthesis with resource stats. Accepts `code`, `files`, or `project_dir`. Verilog, SV, VHDL |
-| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
+| `place_and_route` | Full RTL-to-bitstream: Yosys + nextpnr (open targets) or Vivado batch (`target="xilinx"`). Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
 | `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
 
@@ -260,7 +260,7 @@ This keeps the server lean and lets the community grow organically on GitHub.
 | `ecp5` | Lattice ECP5 | yes — nextpnr-ecp5 |
 | `nexus` | Lattice Nexus (CrossLink-NX, CertusPro-NX) | yes — nextpnr-nexus |
 | `gowin` | Gowin | yes — nextpnr-gowin |
-| `xilinx` | Xilinx / AMD | Synth only |
+| `xilinx` | Xilinx / AMD | yes — Vivado batch flow (Vivado install required; Yosys for synth-only) |
 | `intel` | Intel / Altera | Synth only |
 | `generic` | Technology-independent | Netlist only |
 
@@ -272,6 +272,23 @@ Common device/package values for `place_and_route`:
 | ecp5 | `25k` `45k` `85k` | `CABGA256` `CABGA381` |
 | nexus | `LIFCL-40-9BG400C` | *(embedded in device string)* |
 | gowin | `GW1N-UV4LQ144C6/I5` | *(embedded in device string)* |
+| xilinx | `xc7a35tcpg236-1` *(full part number)* | *(embedded in device string)* |
+
+### Vivado flow (Xilinx)
+
+With `target="xilinx"` (or `backend="vivado"`), `place_and_route` generates a non-project batch TCL script and runs `vivado -mode batch` end to end — read sources, `synth_design`, `opt/place/route_design`, utilization and timing reports, `write_bitstream`. Constraints are XDC text (or auto-detected `.xdc` from `project_dir`); if the XDC has a `create_clock -period`, fmax is derived from WNS. Requires a local Vivado install on PATH.
+
+```python
+place_and_route(
+    project_dir="C:/work/my_design",   # or code= / files=
+    top_module="top",
+    board="basys3",                    # or device="xc7a35tcpg236-1"
+    timeout=1800,
+)
+# → bitstream_path (.bit), timing {wns_ns, max_freq_mhz, ...}, utilization, phases
+```
+
+For long Vivado runs, prefer `start_build` with the same flow to poll progress in the background — or pass a `progressToken` for `notifications/progress`.
 
 ---
 
