@@ -138,8 +138,35 @@ def place_and_route(
         device = device or preset["device"]
         package = package or preset.get("package", "")
 
+    # Xilinx has no nextpnr backend — route to the Vivado batch flow.
+    if backend == "vivado" or target == "xilinx":
+        from tools.vivado import vivado_place_and_route
+
+        result = vivado_place_and_route(
+            code=code,
+            top_module=top_module,
+            part=device,
+            constraints=constraints,
+            language=language,
+            files=files,
+            project_dir=project_dir,
+            work_dir=work_dir,
+            timeout=timeout,
+            return_bitstream_b64=return_bitstream_b64,
+            progress=progress,
+        )
+        if board:
+            result["board"] = board
+        if preset and preset.get("clock_mhz") and "timing" in result:
+            target_mhz = preset["clock_mhz"]
+            result["timing"]["target_mhz"] = target_mhz
+            fmax = result["timing"].get("max_freq_mhz")
+            if fmax is not None:
+                result["timing"]["meets_target"] = fmax >= target_mhz
+        return result
+
     if not target or target not in NEXTPNR_BIN:
-        supported = list(NEXTPNR_BIN.keys())
+        supported = list(NEXTPNR_BIN.keys()) + ["xilinx (Vivado backend)"]
         return {
             "success": False,
             "error": f"Unsupported PnR target '{target}'. Supported: {supported}",
