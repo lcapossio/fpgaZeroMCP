@@ -35,7 +35,7 @@ def _completed(cmd, stdout="", stderr="", returncode=0):
 
 class TestSendProgress:
     def test_noop_without_token(self, monkeypatch) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("t")
         sent: list[dict] = []
@@ -44,7 +44,7 @@ class TestSendProgress:
         assert sent == []
 
     def test_emits_notification_with_token(self, monkeypatch) -> None:
-        from mcp_lite import Server, current_progress_token
+        from fpgazero_mcp.mcp_lite import Server, current_progress_token
 
         srv = Server("t")
         sent: list[dict] = []
@@ -66,7 +66,7 @@ class TestSendProgress:
         }
 
     def test_optional_fields_omitted(self, monkeypatch) -> None:
-        from mcp_lite import Server, current_progress_token
+        from fpgazero_mcp.mcp_lite import Server, current_progress_token
 
         srv = Server("t")
         sent: list[dict] = []
@@ -79,7 +79,7 @@ class TestSendProgress:
         assert sent[0]["params"] == {"progressToken": 7, "progress": 0.25}
 
     def test_token_extracted_from_tools_call_meta(self, monkeypatch) -> None:
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("t")
         sent: list[dict] = []
@@ -109,7 +109,7 @@ class TestSendProgress:
         assert sent[0]["params"]["progressToken"] == "abc"
 
     def test_no_meta_means_no_notifications(self, monkeypatch) -> None:
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("t")
         sent: list[dict] = []
@@ -140,12 +140,12 @@ class TestSendProgress:
 
 class TestMakeReporter:
     def test_none_callback_is_noop(self) -> None:
-        from tools.progress import make_reporter
+        from fpgazero_mcp.tools.progress import make_reporter
 
         make_reporter(None)(0.5, "msg")  # must not raise
 
     def test_swallows_callback_exceptions(self) -> None:
-        from tools.progress import make_reporter
+        from fpgazero_mcp.tools.progress import make_reporter
 
         def bad(_frac: float, _msg: str) -> None:
             raise RuntimeError("boom")
@@ -153,7 +153,7 @@ class TestMakeReporter:
         make_reporter(bad)(0.5, "msg")  # must not raise
 
     def test_forwards_calls(self) -> None:
-        from tools.progress import make_reporter
+        from fpgazero_mcp.tools.progress import make_reporter
 
         calls: list[tuple[float, str]] = []
         make_reporter(lambda f, m: calls.append((f, m)))(0.5, "msg")
@@ -167,7 +167,7 @@ class TestMakeReporter:
 
 class TestToolProgress:
     def test_synthesize_reports_phases(self, monkeypatch) -> None:
-        import tools.synthesize as synth_mod
+        import fpgazero_mcp.tools.synthesize as synth_mod
 
         monkeypatch.setattr(
             synth_mod.subprocess, "run", lambda cmd, **kw: _completed(cmd)
@@ -186,7 +186,7 @@ class TestToolProgress:
         assert all(m for _, m in calls)
 
     def test_place_and_route_reports_phases(self, monkeypatch) -> None:
-        import tools.pnr as pnr_mod
+        import fpgazero_mcp.tools.pnr as pnr_mod
 
         def fake_run(cmd, **kw):
             if cmd[0] == "yosys":
@@ -214,7 +214,7 @@ class TestToolProgress:
         assert fractions[-1] == 1.0
 
     def test_raising_progress_does_not_break_tool(self, monkeypatch) -> None:
-        import tools.synthesize as synth_mod
+        import fpgazero_mcp.tools.synthesize as synth_mod
 
         monkeypatch.setattr(
             synth_mod.subprocess, "run", lambda cmd, **kw: _completed(cmd)
@@ -236,21 +236,21 @@ class TestToolProgress:
 
 class TestSimulateMultiFile:
     def test_testbench_required(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         result = simulate(code="module t; endmodule")
         assert result["success"] is False
         assert result["error_code"] == "invalid_input"
 
     def test_no_design_source_rejected(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         result = simulate(testbench="module tb; endmodule")
         assert result["success"] is False
         assert result["error_code"] == "invalid_input"
 
     def test_multiple_modes_rejected(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         result = simulate(
             code="module t; endmodule",
@@ -261,7 +261,7 @@ class TestSimulateMultiFile:
         assert result["error_code"] == "invalid_input"
 
     def test_files_mode_passes_all_sources_to_iverilog(self, monkeypatch) -> None:
-        import tools.simulate as sim_mod
+        import fpgazero_mcp.tools.simulate as sim_mod
 
         cmds: list[list[str]] = []
 
@@ -286,7 +286,7 @@ class TestSimulateMultiFile:
         assert "testbench.v" in basenames
 
     def test_project_dir_mode_adds_include_dir(self, monkeypatch, scratch_dir) -> None:
-        import tools.simulate as sim_mod
+        import fpgazero_mcp.tools.simulate as sim_mod
 
         (scratch_dir / "top.v").write_text("module top; endmodule", encoding="utf-8")
         cmds: list[list[str]] = []
@@ -307,7 +307,7 @@ class TestSimulateMultiFile:
         assert "top.v" in basenames
 
     def test_vhdl_files_mode_analyzes_each_design_file(self, monkeypatch) -> None:
-        import tools.simulate as sim_mod
+        import fpgazero_mcp.tools.simulate as sim_mod
 
         cmds: list[list[str]] = []
 
@@ -333,7 +333,7 @@ class TestSimulateMultiFile:
         assert "testbench.vhd" in analyzed
 
     def test_schema_requires_only_testbench(self) -> None:
-        import server
+        from fpgazero_mcp import server
 
         tools = asyncio.run(server.handle_list_tools())
         sim = next(t for t in tools if t.name == "simulate")
@@ -346,7 +346,7 @@ class TestSimulateMultiFile:
 @pytest.mark.skipif(shutil.which("iverilog") is None, reason="iverilog not installed")
 class TestSimulateMultiFileLive:
     def test_two_file_design_simulates(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         result = simulate(
             files={

@@ -89,7 +89,7 @@ LSP-like structured diagnostics and auto-formatting for HDL source code.
 ### Python
 
 ```python
-from tools.lsp import get_diagnostics, format_hdl
+from fpgazero_mcp.tools.lsp import get_diagnostics, format_hdl
 
 # Diagnostics
 result = get_diagnostics("module top; wire x = 1'b1; endmodule\n")

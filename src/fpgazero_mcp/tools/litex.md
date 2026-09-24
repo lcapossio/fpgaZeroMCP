@@ -87,7 +87,7 @@ Requires [LiteX](https://github.com/enjoy-digital/litex) and [litex-boards](http
 ### Python
 
 ```python
-from tools.litex import litex_build, litex_soc, litex_flow
+from fpgazero_mcp.tools.litex import litex_build, litex_soc, litex_flow
 
 # Build for Arty
 result = litex_build("digilent_arty", args=["--cpu-type=vexriscv"])

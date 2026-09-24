@@ -18,15 +18,15 @@ import subprocess
 from typing import Callable
 from uuid import uuid4
 
-from tools.build_parser import parse_build_log
-from tools.progress import make_reporter
-from tools.synthesize import (
-    _resolve_sources,
+from fpgazero_mcp.tools.build_parser import parse_build_log
+from fpgazero_mcp.tools.progress import make_reporter
+from fpgazero_mcp.tools.sources import (
+    resolve_sources,
     validate_path_in_roots,
     validate_top_module,
 )
-from tools.textutil import truncate_log
-from tools.workspace import data_root, temporary_workspace
+from fpgazero_mcp.tools.textutil import truncate_log
+from fpgazero_mcp.tools.workspace import data_root, temporary_workspace
 
 # Xilinx part numbers: letters, digits, dash (e.g. xc7a35ticsg324-1L)
 _PART_RE = re.compile(r"^[A-Za-z0-9\-]+$")
@@ -199,7 +199,7 @@ def vivado_place_and_route(
         os.makedirs(work_dir, exist_ok=True)
 
     def _run_in(tmpdir: str) -> dict:
-        src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
+        src_paths, err = resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
             return {"success": False, "error": err, "error_code": "invalid_input"}
         report(0.05, "sources resolved")

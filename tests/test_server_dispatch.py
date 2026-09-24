@@ -3,11 +3,11 @@
 import asyncio
 import json
 
-import server
+from fpgazero_mcp import server
 
 
 def test_handle_call_tool_uses_to_thread(monkeypatch) -> None:
-    import tools.lint as tools_lint
+    import fpgazero_mcp.tools.lint as tools_lint
 
     called = []
 

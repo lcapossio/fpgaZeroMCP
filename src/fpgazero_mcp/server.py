@@ -7,11 +7,12 @@ import functools
 import json
 import logging
 
-from mcp_lite import CallToolResult, Server, TextContent, Tool
+from fpgazero_mcp import __version__
+from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent, Tool
 
 logger = logging.getLogger("fpgaZeroMCP")
 
-app = Server("fpgaZeroMCP", version="0.7.0")
+app = Server("fpgaZeroMCP", version=__version__)
 
 
 def _tool_progress(fraction: float, message: str) -> None:
@@ -32,14 +33,14 @@ def _tool_progress(fraction: float, message: str) -> None:
 # for faster start and lower memory footprint per session.
 @functools.cache
 def _registry():
-    from registry.resolver import CoreRegistry
+    from fpgazero_mcp.registry.resolver import CoreRegistry
 
     return CoreRegistry()
 
 
 @functools.cache
 def _builds():
-    from tools.build_manager import BuildManager
+    from fpgazero_mcp.tools.build_manager import BuildManager
 
     return BuildManager()
 
@@ -382,6 +383,97 @@ async def handle_list_tools() -> list[Tool]:
                     },
                 },
                 "required": ["testbench"],
+            },
+        ),
+        Tool(
+            name="formal_verify",
+            description=(
+                "Formally verify HDL assertions with SymbiYosys (sby). Unlike simulate, "
+                "this explores every reachable state rather than one stimulus: mode='bmc' "
+                "proves no assertion fails within `depth` cycles, mode='prove' attempts an "
+                "unbounded proof by k-induction, and mode='cover' finds a trace reaching each "
+                "cover() statement. Returns a PASS/FAIL/UNKNOWN verdict with the failing "
+                "assertion and counterexample trace. The design must contain assert/assume "
+                "properties (SystemVerilog `assert property` or Verilog `assert()` with -formal)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "HDL source with assertions (single-file mode)",
+                    },
+                    "files": {
+                        "type": "object",
+                        "description": "Multi-file mode: mapping of filename to source code",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "project_dir": {
+                        "type": "string",
+                        "description": "Disk mode: path to directory containing HDL source files",
+                    },
+                    "top_module": {
+                        "type": "string",
+                        "default": "top",
+                        "description": "Name of the module to verify",
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["verilog", "systemverilog", "vhdl"],
+                        "default": "verilog",
+                        "description": "HDL language variant",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["bmc", "prove", "cover", "live"],
+                        "default": "bmc",
+                        "description": (
+                            "bmc = bounded check to `depth`; prove = unbounded k-induction; "
+                            "cover = reach each cover statement; live = liveness"
+                        ),
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Cycles to explore for bounded modes (1-10000)",
+                    },
+                    "engine": {
+                        "type": "string",
+                        "enum": [
+                            "smtbmc",
+                            "smtbmc-yices",
+                            "smtbmc-z3",
+                            "smtbmc-boolector",
+                            "abc-pdr",
+                            "aiger-suprove",
+                        ],
+                        "default": "smtbmc",
+                        "description": (
+                            "Solver engine. abc-pdr is often far faster for mode='prove'."
+                        ),
+                    },
+                    "multiclock": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Enable multi-clock support (needed for multiple clock domains)",
+                    },
+                    "include_dirs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Include directories for `include resolution",
+                    },
+                    "defines": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": 'Preprocessor defines, e.g. ["FORMAL", "WIDTH=8"]',
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "default": 300,
+                        "description": "Timeout in seconds",
+                    },
+                },
+                "required": [],
             },
         ),
         Tool(
@@ -803,7 +895,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
         result: dict | list
         match name:
             case "lint_hdl":
-                from tools.lint import lint_hdl
+                from fpgazero_mcp.tools.lint import lint_hdl
 
                 result = await asyncio.to_thread(
                     lint_hdl,
@@ -813,7 +905,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     linter=arguments.get("linter", "iverilog"),
                 )
             case "lint_project":
-                from tools.lint import lint_project
+                from fpgazero_mcp.tools.lint import lint_project
 
                 result = await asyncio.to_thread(
                     lint_project,
@@ -824,7 +916,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     linter=arguments.get("linter", "iverilog"),
                 )
             case "synthesize":
-                from tools.synthesize import synthesize
+                from fpgazero_mcp.tools.synthesize import synthesize
 
                 result = await asyncio.to_thread(
                     synthesize,
@@ -841,7 +933,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     progress=_tool_progress,
                 )
             case "place_and_route":
-                from tools.pnr import place_and_route
+                from fpgazero_mcp.tools.pnr import place_and_route
 
                 result = await asyncio.to_thread(
                     place_and_route,
@@ -865,7 +957,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     progress=_tool_progress,
                 )
             case "simulate":
-                from tools.simulate import simulate
+                from fpgazero_mcp.tools.simulate import simulate
 
                 result = await asyncio.to_thread(
                     simulate,
@@ -877,8 +969,27 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     files=arguments.get("files"),
                     project_dir=arguments.get("project_dir"),
                 )
+            case "formal_verify":
+                from fpgazero_mcp.tools.formal import formal_verify
+
+                result = await asyncio.to_thread(
+                    formal_verify,
+                    code=arguments.get("code", ""),
+                    files=arguments.get("files"),
+                    project_dir=arguments.get("project_dir"),
+                    top_module=arguments.get("top_module", "top"),
+                    language=arguments.get("language", "verilog"),
+                    mode=arguments.get("mode", "bmc"),
+                    depth=arguments.get("depth", 20),
+                    engine=arguments.get("engine", "smtbmc"),
+                    multiclock=arguments.get("multiclock", False),
+                    include_dirs=arguments.get("include_dirs"),
+                    defines=arguments.get("defines"),
+                    timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
+                    progress=_tool_progress,
+                )
             case "search_github_cores":
-                from registry.github import search_repos
+                from fpgazero_mcp.registry.github import search_repos
 
                 result = await asyncio.to_thread(  # type: ignore[arg-type]
                     search_repos,
@@ -913,7 +1024,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     instance_name=arguments.get("instance_name"),
                 )
             case "get_diagnostics":
-                from tools.lsp import get_diagnostics
+                from fpgazero_mcp.tools.lsp import get_diagnostics
 
                 result = await asyncio.to_thread(
                     get_diagnostics,
@@ -921,7 +1032,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     language=arguments.get("language", "verilog"),
                 )
             case "format_hdl":
-                from tools.lsp import format_hdl
+                from fpgazero_mcp.tools.lsp import format_hdl
 
                 result = await asyncio.to_thread(
                     format_hdl,
@@ -929,7 +1040,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     language=arguments.get("language", "verilog"),
                 )
             case "litex_build":
-                from tools.litex import litex_build
+                from fpgazero_mcp.tools.litex import litex_build
 
                 result = await asyncio.to_thread(
                     litex_build,
@@ -940,7 +1051,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     progress=_tool_progress,
                 )
             case "litex_soc":
-                from tools.litex import litex_soc
+                from fpgazero_mcp.tools.litex import litex_soc
 
                 result = await asyncio.to_thread(
                     litex_soc,
@@ -951,7 +1062,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     progress=_tool_progress,
                 )
             case "litex_flow":
-                from tools.litex import litex_flow
+                from fpgazero_mcp.tools.litex import litex_flow
 
                 result = await asyncio.to_thread(
                     litex_flow,
@@ -977,20 +1088,20 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
             case "cancel_build":
                 result = _builds().cancel(build_id=arguments["build_id"])
             case "check_tools":
-                from tools.healthcheck import check_tools
+                from fpgazero_mcp.tools.healthcheck import check_tools
 
                 result = await asyncio.to_thread(check_tools)
             case "reload_registry":
                 result = _registry().reload()
             case "cleanup_build_logs":
-                from tools.build_manager import BuildManager
+                from fpgazero_mcp.tools.build_manager import BuildManager
 
                 result = BuildManager.cleanup_logs(
                     max_age_days=arguments.get("max_age_days", 7),
                     max_total_mb=arguments.get("max_total_mb", 500),
                 )
             case "program_fpga":
-                from tools.program import program_fpga
+                from fpgazero_mcp.tools.program import program_fpga
 
                 result = await asyncio.to_thread(
                     program_fpga,
@@ -1002,7 +1113,7 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     timeout=_clamp_timeout(arguments.get("timeout", 60), 60),
                 )
             case "list_boards":
-                from tools.boards import list_boards
+                from fpgazero_mcp.tools.boards import list_boards
 
                 result = list_boards()
             case _:

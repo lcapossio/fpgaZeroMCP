@@ -7,7 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-from registry.manifest import CoreManifest
+from fpgazero_mcp.registry.manifest import CoreManifest
 
 CORES_DIR = Path(__file__).parent.parent / "cores"
 CONFIG_FILE = Path.home() / ".fpgazero_mcp" / "config.json"
@@ -160,7 +160,7 @@ class CoreRegistry:
         ref: str = "",
     ) -> dict:
         """Download a GitHub repo and register it as a local core."""
-        from registry.github import import_core
+        from fpgazero_mcp.registry.github import import_core
 
         result = import_core(
             owner_repo=owner_repo,
@@ -174,7 +174,7 @@ class CoreRegistry:
 
     def import_fusesoc_core(self, path: str) -> dict:
         """Import a local CAPI2 .core file. HDL files must be in the same directory."""
-        from registry.fusesoc import load_core_file
+        from fpgazero_mcp.registry.fusesoc import load_core_file
 
         src = Path(path)
         if not src.exists():

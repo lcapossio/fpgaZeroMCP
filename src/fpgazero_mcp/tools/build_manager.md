@@ -147,7 +147,7 @@ Deletes old logs first, then trims by size (oldest first).
 ### Python
 
 ```python
-from tools.build_manager import BuildManager
+from fpgazero_mcp.tools.build_manager import BuildManager
 
 mgr = BuildManager()
 

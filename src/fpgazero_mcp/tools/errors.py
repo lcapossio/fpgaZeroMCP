@@ -28,6 +28,9 @@ RESOURCE_OVERFLOW = "resource_overflow"
 # Simulation
 SIM_FAILED = "sim_failed"
 
+# Formal verification
+FORMAL_FAILED = "formal_failed"
+
 # File / path
 PATH_SECURITY = "path_security"
 FILE_NOT_FOUND = "file_not_found"

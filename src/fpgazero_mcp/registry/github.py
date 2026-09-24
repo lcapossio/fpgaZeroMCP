@@ -409,7 +409,7 @@ def import_core(
     if core_paths:
         try:
             raw = _download_raw(owner, repo, core_paths[0], ref)
-            from registry.fusesoc import capi2_to_manifest_dict
+            from fpgazero_mcp.registry.fusesoc import capi2_to_manifest_dict
 
             fuse_manifest = capi2_to_manifest_dict(
                 raw,

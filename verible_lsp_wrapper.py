@@ -14,7 +14,7 @@ from pathlib import Path
 # Add parent dir to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from tools.lsp import format_hdl, get_diagnostics
+from fpgazero_mcp.tools.lsp import format_hdl, get_diagnostics
 
 
 async def handle_stdin():

@@ -22,8 +22,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from tools.lint import _win_to_wsl_path, _wsl_has_verilator
-from tools.workspace import temporary_workspace
+from fpgazero_mcp.tools.lint import _win_to_wsl_path, _wsl_has_verilator
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 HDL_SUFFIX = {
     "verilog": ".v",

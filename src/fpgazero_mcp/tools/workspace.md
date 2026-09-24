@@ -50,7 +50,7 @@ The workspace is used internally by all tool wrappers (lint, synthesize, simulat
 ### Python
 
 ```python
-from tools.workspace import temporary_workspace
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 with temporary_workspace("synth_") as tmpdir:
     # tmpdir is a writable directory path string

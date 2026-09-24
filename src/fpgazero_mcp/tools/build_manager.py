@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
-from tools.workspace import data_root
+from fpgazero_mcp.tools.workspace import data_root
 
 
 @dataclass
@@ -97,7 +97,7 @@ class BuildRecord:
             return ""
 
     def to_dict(self, tail_lines: int = 20, parse: bool = True) -> dict:
-        from tools.build_parser import parse_build_log
+        from fpgazero_mcp.tools.build_parser import parse_build_log
 
         result = {
             "build_id": self.build_id,

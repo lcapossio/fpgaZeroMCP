@@ -9,9 +9,9 @@ Optional: iverilog, ghdl on PATH for lint/simulate examples.
 """
 
 import json
-from registry.resolver import CoreRegistry
-from tools.lint import lint_hdl, lint_project
-from tools.simulate import simulate
+from fpgazero_mcp.registry.resolver import CoreRegistry
+from fpgazero_mcp.tools.lint import lint_hdl, lint_project
+from fpgazero_mcp.tools.simulate import simulate
 
 SEP = "-" * 60
 

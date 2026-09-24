@@ -9,7 +9,7 @@ import os
 import subprocess
 import tempfile
 
-from tools.errors import err, TOOL_NOT_FOUND, TIMEOUT, INVALID_INPUT
+from fpgazero_mcp.tools.errors import err, TOOL_NOT_FOUND, TIMEOUT, INVALID_INPUT
 
 # Default programmer per target
 _DEFAULT_PROGRAMMER = {

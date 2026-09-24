@@ -84,7 +84,7 @@ Lint multiple files in a single invocation so cross-module references resolve.
 ### Python
 
 ```python
-from tools.lint import lint_hdl, lint_project
+from fpgazero_mcp.tools.lint import lint_hdl, lint_project
 
 # Single file
 result = lint_hdl("module top(input a, output y); assign y = a; endmodule\n")

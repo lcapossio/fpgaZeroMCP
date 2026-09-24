@@ -134,7 +134,7 @@ The `top_module` name must be a valid Verilog identifier:
 ### Python
 
 ```python
-from tools.synthesize import synthesize
+from fpgazero_mcp.tools.synthesize import synthesize
 
 # Single file
 result = synthesize(code="module top(...); endmodule", top_module="top")

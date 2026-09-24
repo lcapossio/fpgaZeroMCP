@@ -12,17 +12,17 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
-from tools.boards import get_board_preset
-from tools.progress import make_reporter
-from tools.synthesize import (
-    SYNTH_CMDS,
+from fpgazero_mcp.tools.boards import get_board_preset
+from fpgazero_mcp.tools.progress import make_reporter
+from fpgazero_mcp.tools.sources import (
+    resolve_sources,
     validate_path_in_roots,
     validate_top_module,
-    _resolve_sources,
-    _yosys_read_cmds,
+    yosys_read_cmds,
 )
-from tools.textutil import truncate_log
-from tools.workspace import data_root, temporary_workspace
+from fpgazero_mcp.tools.synthesize import SYNTH_CMDS
+from fpgazero_mcp.tools.textutil import truncate_log
+from fpgazero_mcp.tools.workspace import data_root, temporary_workspace
 
 # nextpnr binary per target
 NEXTPNR_BIN = {
@@ -117,7 +117,7 @@ def place_and_route(
                 "error": "litex_board is required for LiteX backend.",
                 "error_code": "invalid_input",
             }
-        from tools.litex import litex_build
+        from fpgazero_mcp.tools.litex import litex_build
 
         result = litex_build(
             board=litex_board,
@@ -140,7 +140,7 @@ def place_and_route(
 
     # Xilinx has no nextpnr backend — route to the Vivado batch flow.
     if backend == "vivado" or target == "xilinx":
-        from tools.vivado import vivado_place_and_route
+        from fpgazero_mcp.tools.vivado import vivado_place_and_route
 
         result = vivado_place_and_route(
             code=code,
@@ -202,7 +202,7 @@ def place_and_route(
         persistent_dir = work_dir
 
     def _run_in(tmpdir: str) -> dict:
-        src_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
+        src_paths, err = resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
             return {"success": False, "error": err, "error_code": "invalid_input"}
         report(0.05, "sources resolved")
@@ -216,7 +216,7 @@ def place_and_route(
         include_dirs: list[str] = []
         defines: list[str] = []
         if project_dir:
-            from tools.synthesize import _parse_filelist
+            from fpgazero_mcp.tools.sources import parse_filelist
 
             resolved_proj = str(Path(project_dir).resolve())
             include_dirs.append(resolved_proj)
@@ -224,7 +224,7 @@ def place_and_route(
             for filelist_name in ("files.f", "sources.f"):
                 filelist_path = os.path.join(project_dir, filelist_name)
                 if os.path.isfile(filelist_path):
-                    _, fl_incdirs, fl_defines = _parse_filelist(
+                    _, fl_incdirs, fl_defines = parse_filelist(
                         filelist_path, project_dir
                     )
                     include_dirs.extend(fl_incdirs)
@@ -236,8 +236,8 @@ def place_and_route(
                     if root not in include_dirs:
                         include_dirs.append(root)
 
-        # _yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
-        read_cmds = _yosys_read_cmds(
+        # yosys_read_cmds handles VHDL elaborate in a single ghdl invocation
+        read_cmds = yosys_read_cmds(
             src_paths, language, top_module, include_dirs, defines
         )
         netlist_yosys = netlist_json.replace("\\", "/")

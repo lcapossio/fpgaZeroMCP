@@ -30,7 +30,7 @@ def _run_server_with_input(monkeypatch, srv, lines: list[str]) -> list[str]:
 
 class TestConcurrentDispatch:
     def test_slow_tool_call_does_not_block_ping(self, monkeypatch) -> None:
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("t")
 
@@ -63,7 +63,7 @@ class TestConcurrentDispatch:
         assert ids.index(3) < ids.index(2)
 
     def test_in_flight_requests_finish_on_eof(self, monkeypatch) -> None:
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("t")
 
@@ -91,7 +91,7 @@ class TestConcurrentDispatch:
         assert json.loads(out[0])["id"] == 7
 
     def test_malformed_json_gets_parse_error(self, monkeypatch) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("t")
         out = _run_server_with_input(monkeypatch, srv, ["{this is not json"])
@@ -125,7 +125,7 @@ _YOSYS_STAT_OUTPUT = """\
 
 class TestParseYosysStats:
     def test_parses_counts_and_cell_types(self) -> None:
-        from tools.synthesize import parse_yosys_stats
+        from fpgazero_mcp.tools.synthesize import parse_yosys_stats
 
         stats = parse_yosys_stats(_YOSYS_STAT_OUTPUT)
         assert stats["wires"] == 14
@@ -134,7 +134,7 @@ class TestParseYosysStats:
         assert stats["cells_by_type"] == {"SB_CARRY": 4, "SB_DFF": 4, "SB_LUT4": 4}
 
     def test_uses_last_module_block(self) -> None:
-        from tools.synthesize import parse_yosys_stats
+        from fpgazero_mcp.tools.synthesize import parse_yosys_stats
 
         two_blocks = _YOSYS_STAT_OUTPUT.replace(
             "=== top ===",
@@ -144,7 +144,7 @@ class TestParseYosysStats:
         assert stats["cells"] == 12
 
     def test_empty_output(self) -> None:
-        from tools.synthesize import parse_yosys_stats
+        from fpgazero_mcp.tools.synthesize import parse_yosys_stats
 
         assert parse_yosys_stats("") == {}
 
@@ -156,7 +156,7 @@ class TestParseYosysStats:
 
 class TestTruncateLog:
     def test_short_log_untouched(self) -> None:
-        from tools.textutil import truncate_log
+        from fpgazero_mcp.tools.textutil import truncate_log
 
         text = "\n".join(f"line {i}" for i in range(50))
         out, truncated = truncate_log(text)
@@ -164,7 +164,7 @@ class TestTruncateLog:
         assert truncated is False
 
     def test_long_log_keeps_head_and_tail(self) -> None:
-        from tools.textutil import truncate_log
+        from fpgazero_mcp.tools.textutil import truncate_log
 
         text = "\n".join(f"line {i}" for i in range(500))
         out, truncated = truncate_log(text, head=20, tail=60)
@@ -201,7 +201,7 @@ endmodule
 )
 class TestSimulateVcdOutput:
     def test_summary_only_by_default(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         r = simulate("module dummy; endmodule", _TB_WITH_VCD)
         assert r["success"] is True
@@ -211,7 +211,7 @@ class TestSimulateVcdOutput:
         assert "vcd" not in r
 
     def test_raw_vcd_on_request(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         r = simulate("module dummy; endmodule", _TB_WITH_VCD, return_vcd=True)
         assert r["success"] is True

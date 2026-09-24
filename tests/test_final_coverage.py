@@ -55,7 +55,7 @@ class _FakeProc:
 class TestMcpLiteRunLoop:
     def test_run_loop_processes_request_and_exits_on_eof(self, monkeypatch) -> None:
         """Feed one initialize request, then EOF, and verify a well-formed response."""
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test-srv", version="0.0.1")
 
@@ -86,7 +86,7 @@ class TestMcpLiteRunLoop:
         assert resp["result"]["serverInfo"]["name"] == "test-srv"
 
     def test_run_loop_ignores_blank_lines(self, monkeypatch) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         # Blank lines followed by a ping, then EOF
@@ -102,7 +102,7 @@ class TestMcpLiteRunLoop:
         assert resp["id"] == 7
 
     def test_run_loop_handles_malformed_json(self, monkeypatch) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         # Malformed line gets a JSON-RPC parse error; the valid ping still works.
@@ -122,7 +122,7 @@ class TestMcpLiteRunLoop:
         assert json.loads(lines[1])["id"] == 8
 
     def test_run_loop_does_not_write_for_notifications(self, monkeypatch) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         # Notification (no id) + notification, then EOF. Nothing should be written.
@@ -178,7 +178,7 @@ def _write_core(
 
 class TestRegistryResolver:
     def test_extra_core_paths_from_env(self, monkeypatch, scratch_dir) -> None:
-        from registry.resolver import _extra_core_paths
+        from fpgazero_mcp.registry.resolver import _extra_core_paths
 
         sep = os.pathsep
         monkeypatch.setenv("USERCORES_PATH", f"{scratch_dir}{sep}  {sep}/some/other")
@@ -188,7 +188,7 @@ class TestRegistryResolver:
 
     def test_extra_core_paths_from_config(self, monkeypatch, scratch_dir) -> None:
         """Config file with core_paths list is honored."""
-        from registry import resolver
+        from fpgazero_mcp.registry import resolver
 
         fake_config = scratch_dir / "config.json"
         fake_config.write_text(json.dumps({"core_paths": ["/foo", "/bar"]}))
@@ -202,7 +202,7 @@ class TestRegistryResolver:
         self, monkeypatch, scratch_dir, caplog
     ) -> None:
         """Malformed config logs warning but doesn't crash."""
-        from registry import resolver
+        from fpgazero_mcp.registry import resolver
 
         fake_config = scratch_dir / "config.json"
         fake_config.write_text("not json")
@@ -212,7 +212,7 @@ class TestRegistryResolver:
         assert paths == []  # no crashing
 
     def test_load_dir_skips_invalid_manifest(self, scratch_dir, caplog) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         # Write an invalid core.json
         bad_core = scratch_dir / "bad_core"
@@ -223,7 +223,7 @@ class TestRegistryResolver:
         assert "bad_core" not in reg._cache  # invalid manifest ignored
 
     def test_load_dir_skips_unsafe_file_paths(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         bad = scratch_dir / "unsafe_core"
         bad.mkdir()
@@ -244,7 +244,7 @@ class TestRegistryResolver:
         assert "unsafe_core" not in reg._cache
 
     def test_list_cores_category_filter(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         _write_core(scratch_dir, "coreA", category="memory")
         _write_core(scratch_dir, "coreB", category="communication")
@@ -258,14 +258,14 @@ class TestRegistryResolver:
         assert mem_only[0]["name"] == "coreA"
 
     def test_get_core_not_found(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         reg = CoreRegistry(cores_dir=scratch_dir)
         r = reg.get_core("nonexistent")
         assert "error" in r
 
     def test_get_core_missing_file_reports_error_in_body(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         _write_core(scratch_dir, "c1", files=["c1.v"])
         # Delete the HDL file after manifest is written so manifest is valid
@@ -277,7 +277,7 @@ class TestRegistryResolver:
         assert "ERROR" in r["files"]["c1.v"]
 
     def test_generate_ip_with_parameters(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         _write_core(
             scratch_dir,
@@ -298,7 +298,7 @@ class TestRegistryResolver:
         assert ".WIDTH(32)" in r["instantiation"]
 
     def test_generate_ip_instance_name(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         _write_core(scratch_dir, "simple")
         reg = CoreRegistry(cores_dir=scratch_dir)
@@ -306,7 +306,7 @@ class TestRegistryResolver:
         assert " u_simple " in r["instantiation"]
 
     def test_generate_ip_boolean_and_string_params(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         _write_core(
             scratch_dir,
@@ -325,21 +325,21 @@ class TestRegistryResolver:
         assert '.MODE("slow")' in r["instantiation"]
 
     def test_generate_ip_not_found(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         reg = CoreRegistry(cores_dir=scratch_dir)
         r = reg.generate_ip("ghost")
         assert "error" in r
 
     def test_import_fusesoc_missing_file(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         reg = CoreRegistry(cores_dir=scratch_dir)
         r = reg.import_fusesoc_core("/does/not/exist.core")
         assert "error" in r
 
     def test_import_fusesoc_parse_failure(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         bad = scratch_dir / "bogus.core"
         bad.write_text("{[not valid yaml")
@@ -348,7 +348,7 @@ class TestRegistryResolver:
         assert "error" in r
 
     def test_import_fusesoc_happy_path(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         # Write a tiny CAPI2 core file alongside its referenced HDL
         core_file = scratch_dir / "my.core"
@@ -378,7 +378,7 @@ class TestRegistryResolver:
         assert r["core_name"] in reg._cache
 
     def test_reload_returns_count(self, scratch_dir) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         _write_core(scratch_dir, "a")
         _write_core(scratch_dir, "b")
@@ -396,7 +396,7 @@ class TestRegistryResolver:
 class TestBuildManagerExtra:
     def test_monitor_thread_records_returncode(self, monkeypatch, scratch_dir) -> None:
         """Start a fake fast-exiting subprocess and verify the monitor thread records rc."""
-        from tools import build_manager
+        from fpgazero_mcp.tools import build_manager
 
         # Use real Popen wrapping Python itself with -c isn't allowed (allowlist).
         # Use iverilog since it's actually installed in this env.
@@ -422,7 +422,7 @@ class TestBuildManagerExtra:
         assert final["returncode"] is not None
 
     def test_build_record_tail_small_file(self, scratch_dir) -> None:
-        from tools.build_manager import BuildRecord
+        from fpgazero_mcp.tools.build_manager import BuildRecord
 
         log = scratch_dir / "small.log"
         log.write_text("line1\nline2\nline3\n", encoding="utf-8")
@@ -438,7 +438,7 @@ class TestBuildManagerExtra:
         assert rec.log_size_kb() >= 0
 
     def test_build_record_tail_large_file(self, scratch_dir) -> None:
-        from tools.build_manager import BuildRecord
+        from fpgazero_mcp.tools.build_manager import BuildRecord
 
         log = scratch_dir / "big.log"
         # Write > 64KB to trigger the seek-from-end path
@@ -459,7 +459,7 @@ class TestBuildManagerExtra:
         assert "line19999" in tail
 
     def test_build_record_tail_missing_file(self) -> None:
-        from tools.build_manager import BuildRecord
+        from fpgazero_mcp.tools.build_manager import BuildRecord
 
         rec = BuildRecord(
             build_id="x",
@@ -474,7 +474,7 @@ class TestBuildManagerExtra:
         assert rec.full_log() == ""
 
     def test_cleanup_logs_by_age(self, monkeypatch, scratch_dir) -> None:
-        from tools.build_manager import BuildManager
+        from fpgazero_mcp.tools.build_manager import BuildManager
 
         # Create fake build logs under the data root
         monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir))
@@ -493,7 +493,7 @@ class TestBuildManagerExtra:
         assert new.exists()
 
     def test_cleanup_logs_by_size(self, monkeypatch, scratch_dir) -> None:
-        from tools.build_manager import BuildManager
+        from fpgazero_mcp.tools.build_manager import BuildManager
 
         monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir))
         logs_dir = scratch_dir / "builds"
@@ -512,7 +512,7 @@ class TestBuildManagerExtra:
         assert r["deleted"] == 3
 
     def test_cleanup_logs_no_directory(self, monkeypatch, scratch_dir) -> None:
-        from tools.build_manager import BuildManager
+        from fpgazero_mcp.tools.build_manager import BuildManager
 
         monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir / "empty"))
         r = BuildManager.cleanup_logs()
@@ -527,7 +527,7 @@ class TestBuildManagerExtra:
 class TestSynthesizeMoreCoverage:
     def test_vhdl_synth_script_generated(self, monkeypatch, scratch_dir) -> None:
         """VHDL source goes through ghdl-yosys-plugin with lowercased top."""
-        from tools.synthesize import synthesize
+        from fpgazero_mcp.tools.synthesize import synthesize
 
         captured: list[list[str]] = []
 
@@ -561,7 +561,7 @@ class TestSynthesizeMoreCoverage:
         self, monkeypatch, scratch_dir
     ) -> None:
         """project_dir with files.f overrides globbing — respects compile order."""
-        from tools.synthesize import synthesize
+        from fpgazero_mcp.tools.synthesize import synthesize
 
         (scratch_dir / "top.v").write_text("module top; endmodule\n")
         (scratch_dir / "sub.v").write_text("module sub; endmodule\n")
@@ -590,7 +590,7 @@ class TestSynthesizeMoreCoverage:
 
     def test_synthesize_include_dirs_autowalk(self, monkeypatch, scratch_dir) -> None:
         """Subdirectories with .vh/.svh headers are auto-added as -I paths."""
-        from tools.synthesize import synthesize
+        from fpgazero_mcp.tools.synthesize import synthesize
 
         (scratch_dir / "top.v").write_text("module top; endmodule\n")
         inc = scratch_dir / "inc"
@@ -613,7 +613,7 @@ class TestSynthesizeMoreCoverage:
         assert "inc" in script
 
     def test_synthesize_timeout(self, monkeypatch) -> None:
-        from tools.synthesize import synthesize
+        from fpgazero_mcp.tools.synthesize import synthesize
 
         def fake_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise subprocess.TimeoutExpired(cmd="yosys", timeout=120)
@@ -624,7 +624,7 @@ class TestSynthesizeMoreCoverage:
         assert "timed out" in r["error"]
 
     def test_synthesize_yosys_missing(self, monkeypatch) -> None:
-        from tools.synthesize import synthesize
+        from fpgazero_mcp.tools.synthesize import synthesize
 
         def fake_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise FileNotFoundError
@@ -635,13 +635,13 @@ class TestSynthesizeMoreCoverage:
 
     def test_parse_filelist_nested(self, scratch_dir) -> None:
         """Nested `-f other.f` directives are resolved recursively."""
-        from tools.synthesize import _parse_filelist
+        from fpgazero_mcp.tools.sources import parse_filelist
 
         (scratch_dir / "a.v").write_text("module a; endmodule\n")
         (scratch_dir / "b.v").write_text("module b; endmodule\n")
         (scratch_dir / "nested.f").write_text("b.v\n+incdir+rtl\n")
         (scratch_dir / "files.f").write_text("a.v\n-f nested.f\n")
-        sources, incdirs, defines = _parse_filelist(
+        sources, incdirs, defines = parse_filelist(
             str(scratch_dir / "files.f"), str(scratch_dir)
         )
         # Both a.v and b.v from the nested filelist
@@ -684,7 +684,7 @@ def _pnr_success_mock(captured: list[list[str]], netlist_contents: dict):
 class TestPnrMoreCoverage:
     def test_constraint_auto_detection(self, monkeypatch, scratch_dir) -> None:
         """PnR with project_dir + no constraint string should auto-pick the pcf."""
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         (scratch_dir / "top.v").write_text("module top; endmodule\n")
         (scratch_dir / "pins.pcf").write_text("set_io clk 35\n")
@@ -709,7 +709,7 @@ class TestPnrMoreCoverage:
 
     def test_pnr_work_dir_persistence(self, monkeypatch, scratch_dir) -> None:
         """work_dir is reused, not recreated, and returned in the response."""
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         captured: list[list[str]] = []
         monkeypatch.setattr(
@@ -731,7 +731,7 @@ class TestPnrMoreCoverage:
 
     def test_pnr_vhdl_lowercases_top(self, monkeypatch, scratch_dir) -> None:
         """VHDL synth command should use lowercased top_module."""
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         captured_scripts: list[str] = []
 
@@ -768,7 +768,7 @@ class TestPnrMoreCoverage:
 
     def test_pnr_parse_utilization_per_target(self) -> None:
         """Each target has its own utilization pattern."""
-        from tools.pnr import _parse_utilization
+        from fpgazero_mcp.tools.pnr import _parse_utilization
 
         ecp5_out = "LUT4:            100/ 24288\nTRELLIS_IO:       5/  197\n"
         util = _parse_utilization(ecp5_out, "ecp5")
@@ -786,7 +786,7 @@ class TestPnrMoreCoverage:
         assert util["luts_used"] == 333
 
     def test_pnr_constraint_glob_prefers_root(self, monkeypatch, scratch_dir) -> None:
-        from tools.pnr import _find_constraints
+        from fpgazero_mcp.tools.pnr import _find_constraints
 
         (scratch_dir / "root.pcf").write_text("x\n")
         sub = scratch_dir / "sub"
@@ -796,7 +796,7 @@ class TestPnrMoreCoverage:
         assert found.endswith("root.pcf")
 
     def test_pnr_unknown_target(self) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         r = place_and_route(
             code="module top; endmodule",
@@ -815,7 +815,7 @@ class TestPnrMoreCoverage:
 
 class TestWorkspaceFallback:
     def test_env_override_takes_priority(self, monkeypatch, scratch_dir) -> None:
-        from tools.workspace import temporary_workspace
+        from fpgazero_mcp.tools.workspace import temporary_workspace
 
         monkeypatch.setenv("FPGAZERO_TMPDIR", str(scratch_dir))
         with temporary_workspace("test_") as tmp:
@@ -826,7 +826,7 @@ class TestWorkspaceFallback:
         self, monkeypatch, scratch_dir
     ) -> None:
         """If the FPGAZERO_TMPDIR cannot be created, fall back to cwd/no_commit."""
-        from tools.workspace import temporary_workspace
+        from fpgazero_mcp.tools.workspace import temporary_workspace
 
         # Point FPGAZERO_TMPDIR at an unwritable location by mocking mkdir
         bad = scratch_dir / "bad_root"
@@ -852,7 +852,7 @@ class TestWorkspaceFallback:
 
     def test_raises_if_all_roots_fail(self, monkeypatch) -> None:
         """If every candidate root fails, OSError is raised."""
-        from tools.workspace import temporary_workspace
+        from fpgazero_mcp.tools.workspace import temporary_workspace
 
         def always_fail(*_args, **_kwargs):
             raise OSError("no writable dir")
@@ -872,13 +872,13 @@ class TestServerDispatchBehavior:
     """Go beyond smoke-testing — assert correct results from each dispatch branch."""
 
     def _call(self, name: str, args: dict) -> dict:
-        import server
+        from fpgazero_mcp import server
 
         result = asyncio.run(server.handle_call_tool(name, args))
         return json.loads(result.content[0].text)
 
     def test_lint_hdl_dispatch(self, monkeypatch) -> None:
-        import tools.lint as lint_mod
+        import fpgazero_mcp.tools.lint as lint_mod
 
         monkeypatch.setattr(
             lint_mod,
@@ -889,7 +889,7 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "lint_hdl"
 
     def test_lint_project_dispatch(self, monkeypatch) -> None:
-        import tools.lint as lint_mod
+        import fpgazero_mcp.tools.lint as lint_mod
 
         monkeypatch.setattr(
             lint_mod,
@@ -900,7 +900,7 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "lint_project"
 
     def test_synthesize_dispatch(self, monkeypatch) -> None:
-        import tools.synthesize as synth
+        import fpgazero_mcp.tools.synthesize as synth
 
         monkeypatch.setattr(
             synth,
@@ -914,7 +914,7 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "synthesize"
 
     def test_place_and_route_dispatch(self, monkeypatch) -> None:
-        import tools.pnr as pnr
+        import fpgazero_mcp.tools.pnr as pnr
 
         monkeypatch.setattr(
             pnr,
@@ -933,7 +933,7 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "pnr"
 
     def test_simulate_dispatch(self, monkeypatch) -> None:
-        import tools.simulate as sim
+        import fpgazero_mcp.tools.simulate as sim
 
         monkeypatch.setattr(
             sim,
@@ -947,56 +947,56 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "sim"
 
     def test_get_diagnostics_dispatch(self, monkeypatch) -> None:
-        import tools.lsp as lsp
+        import fpgazero_mcp.tools.lsp as lsp
 
         monkeypatch.setattr(lsp, "get_diagnostics", lambda **_: {"marker": "diag"})
         r = self._call("get_diagnostics", {"code": "module t; endmodule"})
         assert r["marker"] == "diag"
 
     def test_format_hdl_dispatch(self, monkeypatch) -> None:
-        import tools.lsp as lsp
+        import fpgazero_mcp.tools.lsp as lsp
 
         monkeypatch.setattr(lsp, "format_hdl", lambda **_: {"marker": "fmt"})
         r = self._call("format_hdl", {"code": "module t;endmodule"})
         assert r["marker"] == "fmt"
 
     def test_litex_build_dispatch(self, monkeypatch) -> None:
-        import tools.litex as litex
+        import fpgazero_mcp.tools.litex as litex
 
         monkeypatch.setattr(litex, "litex_build", lambda **_: {"marker": "litex_build"})
         r = self._call("litex_build", {"board": "arty"})
         assert r["marker"] == "litex_build"
 
     def test_litex_soc_dispatch(self, monkeypatch) -> None:
-        import tools.litex as litex
+        import fpgazero_mcp.tools.litex as litex
 
         monkeypatch.setattr(litex, "litex_soc", lambda **_: {"marker": "litex_soc"})
         r = self._call("litex_soc", {"board": "arty"})
         assert r["marker"] == "litex_soc"
 
     def test_litex_flow_dispatch(self, monkeypatch) -> None:
-        import tools.litex as litex
+        import fpgazero_mcp.tools.litex as litex
 
         monkeypatch.setattr(litex, "litex_flow", lambda **_: {"marker": "flow"})
         r = self._call("litex_flow", {"board": "arty"})
         assert r["marker"] == "flow"
 
     def test_search_github_cores_dispatch(self, monkeypatch) -> None:
-        import registry.github as gh
+        import fpgazero_mcp.registry.github as gh
 
         monkeypatch.setattr(gh, "search_repos", lambda **_: [{"marker": "search"}])
         r = self._call("search_github_cores", {"query": "uart"})
         assert r[0]["marker"] == "search"
 
     def test_start_build_dispatch(self, monkeypatch) -> None:
-        import server
+        from fpgazero_mcp import server
 
         monkeypatch.setattr(server._builds(), "start", lambda **_: {"marker": "start"})
         r = self._call("start_build", {"cmd": ["yosys", "-V"]})
         assert r["marker"] == "start"
 
     def test_build_status_dispatch(self, monkeypatch) -> None:
-        import server
+        from fpgazero_mcp import server
 
         monkeypatch.setattr(
             server._builds(),
@@ -1007,7 +1007,7 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "status"
 
     def test_list_builds_dispatch(self, monkeypatch) -> None:
-        import server
+        from fpgazero_mcp import server
 
         monkeypatch.setattr(
             server._builds(), "list_builds", lambda: [{"marker": "list"}]
@@ -1016,7 +1016,7 @@ class TestServerDispatchBehavior:
         assert r[0]["marker"] == "list"
 
     def test_cancel_build_dispatch(self, monkeypatch) -> None:
-        import server
+        from fpgazero_mcp import server
 
         monkeypatch.setattr(
             server._builds(),
@@ -1027,7 +1027,7 @@ class TestServerDispatchBehavior:
         assert r["marker"] == "cancel"
 
     def test_reload_registry_dispatch(self, monkeypatch) -> None:
-        import server
+        from fpgazero_mcp import server
 
         monkeypatch.setattr(server._registry(), "reload", lambda: {"marker": "reload"})
         r = self._call("reload_registry", {})
@@ -1035,7 +1035,7 @@ class TestServerDispatchBehavior:
 
     def test_unhandled_exception_logged_and_reported(self, monkeypatch) -> None:
         """Force an unexpected exception inside a handler and verify the error path."""
-        import tools.lint as lint_mod
+        import fpgazero_mcp.tools.lint as lint_mod
 
         def boom(**_):
             raise RuntimeError("boom")

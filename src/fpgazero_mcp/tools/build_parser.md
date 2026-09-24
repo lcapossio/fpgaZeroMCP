@@ -104,7 +104,7 @@ The parser is used internally by `build_status` -- you don't call it directly vi
 ### Python
 
 ```python
-from tools.build_parser import parse_build_log
+from fpgazero_mcp.tools.build_parser import parse_build_log
 
 # Parse a log file
 with open("build.log") as f:

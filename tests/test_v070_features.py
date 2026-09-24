@@ -64,7 +64,7 @@ def _completed(cmd, stdout="", stderr="", returncode=0):
 
 class TestTclGeneration:
     def test_verilog_flow(self) -> None:
-        from tools.vivado import _generate_tcl
+        from fpgazero_mcp.tools.vivado import _generate_tcl
 
         tcl = _generate_tcl(
             ["C:\\work\\a.v", "C:\\work\\b.v"],
@@ -87,20 +87,20 @@ class TestTclGeneration:
         assert "write_bitstream -force {C:/work/out.bit}" in tcl
 
     def test_systemverilog_uses_sv_flag(self) -> None:
-        from tools.vivado import _generate_tcl
+        from fpgazero_mcp.tools.vivado import _generate_tcl
 
         tcl = _generate_tcl(["/w/a.sv"], "systemverilog", "t", "xc7a35t", None, "/w/o")
         assert "read_verilog -sv {/w/a.sv}" in tcl
 
     def test_vhdl_uses_read_vhdl_2008(self) -> None:
-        from tools.vivado import _generate_tcl
+        from fpgazero_mcp.tools.vivado import _generate_tcl
 
         tcl = _generate_tcl(["/w/a.vhd"], "vhdl", "t", "xc7a35t", None, "/w/o")
         assert "read_vhdl -vhdl2008 {/w/a.vhd}" in tcl
         assert "read_verilog" not in tcl
 
     def test_no_xdc_line_without_constraints(self) -> None:
-        from tools.vivado import _generate_tcl
+        from fpgazero_mcp.tools.vivado import _generate_tcl
 
         tcl = _generate_tcl(["/w/a.v"], "verilog", "t", "xc7a35t", None, "/w/o")
         assert "read_xdc" not in tcl
@@ -113,7 +113,7 @@ class TestTclGeneration:
 
 class TestVivadoTimingParse:
     def test_timing_summary_table(self) -> None:
-        from tools.vivado import _parse_timing
+        from fpgazero_mcp.tools.vivado import _parse_timing
 
         t = _parse_timing(_VIVADO_LOG, clock_period_ns=10.0)
         assert t["wns_ns"] == 2.145
@@ -125,7 +125,7 @@ class TestVivadoTimingParse:
         assert t["meets_timing"] is True
 
     def test_inline_route_summary(self) -> None:
-        from tools.vivado import _parse_timing
+        from fpgazero_mcp.tools.vivado import _parse_timing
 
         log = "route_design\nINFO: Estimated Timing Summary | WNS=-0.35 | TNS=-1.2 |"
         t = _parse_timing(log, clock_period_ns=5.0)
@@ -135,14 +135,14 @@ class TestVivadoTimingParse:
         assert t["max_freq_mhz"] == pytest.approx(1000.0 / 5.35, abs=0.01)
 
     def test_no_period_no_fmax(self) -> None:
-        from tools.vivado import _parse_timing
+        from fpgazero_mcp.tools.vivado import _parse_timing
 
         t = _parse_timing(_VIVADO_LOG, clock_period_ns=None)
         assert "max_freq_mhz" not in t
         assert t["wns_ns"] == 2.145
 
     def test_empty_log(self) -> None:
-        from tools.vivado import _parse_timing
+        from fpgazero_mcp.tools.vivado import _parse_timing
 
         assert _parse_timing("", clock_period_ns=10.0) == {}
 
@@ -154,14 +154,14 @@ class TestVivadoTimingParse:
 
 class TestVivadoValidation:
     def test_missing_top_module(self) -> None:
-        from tools.vivado import vivado_place_and_route
+        from fpgazero_mcp.tools.vivado import vivado_place_and_route
 
         result = vivado_place_and_route(code="module t; endmodule", part="xc7a35t")
         assert result["success"] is False
         assert result["error_code"] == "invalid_input"
 
     def test_missing_part(self) -> None:
-        from tools.vivado import vivado_place_and_route
+        from fpgazero_mcp.tools.vivado import vivado_place_and_route
 
         result = vivado_place_and_route(code="module t; endmodule", top_module="t")
         assert result["success"] is False
@@ -169,7 +169,7 @@ class TestVivadoValidation:
         assert "part number" in result["error"]
 
     def test_invalid_part_rejected(self) -> None:
-        from tools.vivado import vivado_place_and_route
+        from fpgazero_mcp.tools.vivado import vivado_place_and_route
 
         result = vivado_place_and_route(
             code="module t; endmodule", top_module="t", part="xc7a35t; exec rm"
@@ -178,7 +178,7 @@ class TestVivadoValidation:
         assert result["error_code"] == "invalid_input"
 
     def test_vivado_not_found(self, monkeypatch) -> None:
-        import tools.vivado as vv
+        import fpgazero_mcp.tools.vivado as vv
 
         monkeypatch.setattr(vv.shutil, "which", lambda _cmd: None)
         result = vv.vivado_place_and_route(
@@ -195,7 +195,7 @@ class TestVivadoValidation:
 
 class TestPnrVivadoRouting:
     def _capture(self, monkeypatch) -> list[dict]:
-        import tools.vivado as vv
+        import fpgazero_mcp.tools.vivado as vv
 
         calls: list[dict] = []
 
@@ -207,7 +207,7 @@ class TestPnrVivadoRouting:
         return calls
 
     def test_target_xilinx_routes_to_vivado(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         calls = self._capture(monkeypatch)
         result = place_and_route(
@@ -221,7 +221,7 @@ class TestPnrVivadoRouting:
         assert calls[0]["part"] == "xc7a35tcpg236-1"
 
     def test_backend_vivado_routes_without_target(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         calls = self._capture(monkeypatch)
         place_and_route(
@@ -233,8 +233,8 @@ class TestPnrVivadoRouting:
         assert len(calls) == 1
 
     def test_board_preset_sets_part_and_target(self, monkeypatch) -> None:
-        import tools.vivado as vv
-        from tools.pnr import place_and_route
+        import fpgazero_mcp.tools.vivado as vv
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         calls: list[dict] = []
 
@@ -252,7 +252,7 @@ class TestPnrVivadoRouting:
         assert result["timing"]["meets_target"] is True
 
     def test_non_xilinx_targets_unchanged(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         calls = self._capture(monkeypatch)
         result = place_and_route(
@@ -270,7 +270,7 @@ class TestPnrVivadoRouting:
 
 class TestVivadoMockedFlow:
     def test_end_to_end_mocked(self, monkeypatch, scratch_dir) -> None:
-        import tools.vivado as vv
+        import fpgazero_mcp.tools.vivado as vv
 
         monkeypatch.setenv("FPGAZERO_DATA_DIR", str(scratch_dir / "data"))
         monkeypatch.setattr(vv.shutil, "which", lambda _cmd: "vivado")
@@ -319,7 +319,7 @@ class TestVivadoMockedFlow:
         assert fracs[-1] == 1.0
 
     def test_failed_run_returns_pnr_failed(self, monkeypatch) -> None:
-        import tools.vivado as vv
+        import fpgazero_mcp.tools.vivado as vv
 
         monkeypatch.setattr(vv.shutil, "which", lambda _cmd: "vivado")
         monkeypatch.setattr(
@@ -337,7 +337,7 @@ class TestVivadoMockedFlow:
         assert result["errors"] >= 1
 
     def test_timeout(self, monkeypatch) -> None:
-        import tools.vivado as vv
+        import fpgazero_mcp.tools.vivado as vv
 
         monkeypatch.setattr(vv.shutil, "which", lambda _cmd: "vivado")
 
@@ -361,7 +361,7 @@ class TestVivadoMockedFlow:
 
 class TestXdcAutoDetect:
     def test_prefers_root_over_subdir(self, scratch_dir) -> None:
-        from tools.vivado import _find_xdc
+        from fpgazero_mcp.tools.vivado import _find_xdc
 
         sub = scratch_dir / "constrs"
         sub.mkdir()
@@ -372,7 +372,7 @@ class TestXdcAutoDetect:
         assert os.path.basename(found) == "top.xdc"
 
     def test_none_when_absent(self, scratch_dir) -> None:
-        from tools.vivado import _find_xdc
+        from fpgazero_mcp.tools.vivado import _find_xdc
 
         assert _find_xdc(str(scratch_dir)) is None
 
@@ -384,7 +384,7 @@ class TestXdcAutoDetect:
 
 class TestXilinxBoards:
     def test_basys3_preset(self) -> None:
-        from tools.boards import get_board_preset
+        from fpgazero_mcp.tools.boards import get_board_preset
 
         preset = get_board_preset("basys3")
         assert preset is not None
@@ -393,12 +393,12 @@ class TestXilinxBoards:
         assert preset["clock_mhz"] == 100.0
 
     def test_dash_normalization(self) -> None:
-        from tools.boards import get_board_preset
+        from fpgazero_mcp.tools.boards import get_board_preset
 
         assert get_board_preset("arty-a7-35") is not None
 
     def test_listed(self) -> None:
-        from tools.boards import list_boards
+        from fpgazero_mcp.tools.boards import list_boards
 
         names = {b["board"] for b in list_boards()}
         assert {"arty_a7_35", "arty_a7_100", "basys3", "nexys_a7_100"} <= names
@@ -411,7 +411,7 @@ class TestXilinxBoards:
 
 class TestBuildParserInlineWns:
     def test_wns_equals_form(self) -> None:
-        from tools.build_parser import parse_build_log
+        from fpgazero_mcp.tools.build_parser import parse_build_log
 
         log = (
             "route_design\n"
@@ -430,7 +430,7 @@ class TestBuildParserInlineWns:
 
 class TestSchema:
     def test_place_and_route_schema_advertises_vivado(self) -> None:
-        import server
+        from fpgazero_mcp import server
 
         tools = asyncio.run(server.handle_list_tools())
         pnr = next(t for t in tools if t.name == "place_and_route")

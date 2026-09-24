@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-from tools.workspace import temporary_workspace
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 
 _SUFFIX_MAP = {

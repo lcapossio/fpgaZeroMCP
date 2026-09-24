@@ -8,8 +8,8 @@ import re
 import subprocess
 from pathlib import Path
 
-from tools.synthesize import _resolve_sources
-from tools.workspace import temporary_workspace
+from fpgazero_mcp.tools.sources import resolve_sources
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 
 def simulate(
@@ -59,7 +59,7 @@ def _simulate_verilog(
 ) -> dict:
     """Compile and run a Verilog simulation using Icarus Verilog (iverilog + vvp)."""
     with temporary_workspace("sim_") as tmpdir:
-        design_paths, err = _resolve_sources(code, files, project_dir, language, tmpdir)
+        design_paths, err = resolve_sources(code, files, project_dir, language, tmpdir)
         if err:
             return {"success": False, "error": err, "error_code": "invalid_input"}
 
@@ -149,7 +149,7 @@ def _simulate_vhdl(
         }
 
     with temporary_workspace("sim_vhdl_") as tmpdir:
-        design_paths, err = _resolve_sources(code, files, project_dir, "vhdl", tmpdir)
+        design_paths, err = resolve_sources(code, files, project_dir, "vhdl", tmpdir)
         if err:
             return {"success": False, "error": err, "error_code": "invalid_input"}
 

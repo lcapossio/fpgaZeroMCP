@@ -18,6 +18,7 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst`/`.xdc` in your project directory
 - **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus/Xilinx)
 - **First-class Vivado flow**: `place_and_route` with `target="xilinx"` runs the full Vivado batch flow (auto-generated TCL: synth, place, route, `write_bitstream`) — no TCL knowledge needed; plus raw batch runs through `start_build`, Xilinx builds through LiteX, and structured Vivado log parsing in `build_status`
+- **Formal verification**: `formal_verify` drives SymbiYosys — bounded model checking, unbounded k-induction proofs, and cover-reachability, returning the failing assertion and counterexample trace
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
 - **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running; `notifications/cancelled` aborts an in-flight call
@@ -53,7 +54,7 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 ```
 Your AI assistant  <-->  fpgaZeroMCP (stdio MCP server)  <-->  OSS tools
                                     |
-                           cores/   registry on GitHub
+         src/fpgazero_mcp/cores/   registry on GitHub
                            (uart_tx, fifo + any imported)
 ```
 
@@ -66,7 +67,7 @@ The MCP server runs as a local subprocess. Your AI calls tools on it over JSON-R
 | Requirement | Notes |
 |---|---|
 | Python 3.11+ | |
-| [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) | Bundles iverilog, Yosys, nextpnr, Verilator, Verible, GHDL in one download |
+| [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) | Bundles iverilog, Yosys, nextpnr, Verilator, Verible, GHDL and SymbiYosys (`sby`) in one download |
 | [LiteX](https://github.com/enjoy-digital/litex) + [litex-boards](https://github.com/litex-hub/litex-boards) | Optional — only needed for LiteX tools |
 
 Add OSS CAD Suite to your `PATH` after installing. All tool wrappers degrade gracefully if a tool is missing.
@@ -107,9 +108,8 @@ Add to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "fpgaZeroMCP": {
-      "command": "python",
-      "args": ["/path/to/fpgaZeroMCP/server.py"],
-      "env": { "PYTHONPATH": "/path/to/fpgaZeroMCP" }
+      "command": "fpgazero-mcp",
+      "args": []
     }
   }
 }
@@ -124,9 +124,8 @@ Add to `.vscode/mcp.json` in your workspace:
   "servers": {
     "fpgaZeroMCP": {
       "type": "stdio",
-      "command": "python",
-      "args": ["/path/to/fpgaZeroMCP/server.py"],
-      "env": { "PYTHONPATH": "/path/to/fpgaZeroMCP" }
+      "command": "fpgazero-mcp",
+      "args": []
     }
   }
 }
@@ -139,12 +138,14 @@ Add to your MCP settings (Settings → MCP Servers):
 ```json
 {
   "fpgaZeroMCP": {
-    "command": "python",
-    "args": ["/path/to/fpgaZeroMCP/server.py"],
-    "env": { "PYTHONPATH": "/path/to/fpgaZeroMCP" }
+    "command": "fpgazero-mcp",
+    "args": []
   }
 }
 ```
+
+`fpgazero-mcp` is installed on your `PATH` by `pip install`. If your client cannot
+find it, use the module form instead: `"command": "python", "args": ["-m", "fpgazero_mcp.server"]`.
 
 ### Example prompts
 
@@ -179,6 +180,12 @@ Add to your MCP settings (Settings → MCP Servers):
 | `place_and_route` | Full RTL-to-bitstream: Yosys + nextpnr (open targets) or Vivado batch (`target="xilinx"`). Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
 | `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
+
+### Verification
+
+| Tool | Description |
+|---|---|
+| `formal_verify` | Prove or refute assertions with SymbiYosys (`sby`). `mode="bmc"` bounded-checks to `depth`, `mode="prove"` attempts an unbounded k-induction proof, `mode="cover"` finds traces reaching `cover()` statements. Returns a PASS/FAIL/UNKNOWN verdict with the failing assertion and counterexample trace |
 
 ### IP core registry
 
@@ -220,7 +227,7 @@ Add to your MCP settings (Settings → MCP Servers):
 
 ## IP Core Registry
 
-Cores live in `cores/<name>/` — a `core.json` manifest and one or more HDL files. The server auto-discovers them on startup and reloads after any import.
+Cores live in `src/fpgazero_mcp/cores/<name>/` — a `core.json` manifest and one or more HDL files. The server auto-discovers them on startup and reloads after any import.
 
 Two reference cores are included (`uart_tx`, `fifo`) to demonstrate the format. **The registry is not meant to grow here** — it is powered by GitHub.
 
@@ -336,7 +343,7 @@ $env:USERCORES_PATH = "C:\Users\you\my-cores;C:\Users\you\work-cores"
 }
 ```
 
-All paths are scanned on startup alongside the built-in `cores/` directory.
+All paths are scanned on startup alongside the built-in `src/fpgazero_mcp/cores/` directory.
 
 ### Allowed licenses
 
@@ -414,8 +421,8 @@ These are zero-code changes and fully transparent.
 The Python API can be used directly without an MCP client:
 
 ```python
-from registry.resolver import CoreRegistry
-from tools.lint import lint_hdl
+from fpgazero_mcp.registry.resolver import CoreRegistry
+from fpgazero_mcp.tools.lint import lint_hdl
 
 reg = CoreRegistry()
 

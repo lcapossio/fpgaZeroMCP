@@ -108,7 +108,7 @@ The `stage` field in the response indicates where execution stopped:
 ### Python
 
 ```python
-from tools.simulate import simulate
+from fpgazero_mcp.tools.simulate import simulate
 
 result = simulate(design_code, tb_code, timeout=30)
 print(result["verdict"]["verdict"])  # "pass", "fail", or "inconclusive"

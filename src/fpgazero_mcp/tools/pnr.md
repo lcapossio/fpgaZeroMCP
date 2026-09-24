@@ -175,7 +175,7 @@ Without `work_dir`, temp files are deleted after each run.
 ### Python
 
 ```python
-from tools.pnr import place_and_route
+from fpgazero_mcp.tools.pnr import place_and_route
 
 # Board preset (simplest)
 result = place_and_route(
