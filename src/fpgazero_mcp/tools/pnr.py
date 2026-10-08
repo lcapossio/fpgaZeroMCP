@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import glob as _glob
+import hashlib
 import os
 import re
 import shutil
@@ -66,6 +67,28 @@ def _find_constraints(project_dir: str, target: str) -> str | None:
         matches.sort(key=lambda p: (p.count(os.sep), len(p)))
         return matches[0]
     return None
+
+
+def _inputs_digest(script: str, src_paths: list[str]) -> str:
+    """Fingerprint the synthesis inputs: the yosys script plus every source.
+
+    Used to decide whether a netlist in a persistent work_dir still matches the
+    design. Content-based rather than mtime-based on purpose: resolve_sources
+    rewrites code/files sources into the work_dir on every run, so their mtimes
+    are always newer than the netlist and an mtime check would never reuse.
+    """
+    h = hashlib.sha256()
+    h.update(script.encode("utf-8"))
+    for path in sorted(src_paths):
+        h.update(os.path.basename(path).encode("utf-8"))
+        try:
+            with open(path, "rb") as f:
+                h.update(f.read())
+        except OSError:
+            # Unreadable source: make the digest unmatchable so we re-synthesize
+            # rather than reuse a netlist we cannot vouch for.
+            h.update(b"<unreadable>")
+    return h.hexdigest()
 
 
 def place_and_route(
@@ -312,7 +335,28 @@ def place_and_route(
         synth_stderr = ""
         netlist_reused = False
 
-        if reuse_netlist and os.path.exists(netlist_json):
+        stamp_path = netlist_json + ".inputs"
+        digest = _inputs_digest(script, src_paths)
+        reuse_skipped_reason = ""
+
+        if reuse_netlist:
+            if not os.path.exists(netlist_json):
+                reuse_skipped_reason = "no netlist.json in work_dir yet"
+            else:
+                try:
+                    with open(stamp_path, "r", encoding="utf-8") as f:
+                        recorded = f.read().strip()
+                except OSError:
+                    recorded = ""
+                if not recorded:
+                    reuse_skipped_reason = (
+                        "netlist has no recorded input fingerprint; it was not "
+                        "produced by this tool"
+                    )
+                elif recorded != digest:
+                    reuse_skipped_reason = "sources or synthesis options changed"
+
+        if reuse_netlist and not reuse_skipped_reason:
             # Seed sweeps re-run place-and-route against an unchanged netlist;
             # re-synthesizing it every attempt costs time and yields nothing.
             netlist_reused = True
@@ -362,6 +406,15 @@ def place_and_route(
                     "stdout": synth.stdout,
                     "stderr": synth.stderr,
                 }
+
+            # Record what this netlist was built from, so a later
+            # reuse_netlist run can tell whether it is still valid.
+            if use_persistent:
+                try:
+                    with open(stamp_path, "w", encoding="utf-8") as f:
+                        f.write(digest)
+                except OSError:
+                    pass
 
         report(0.5, "synthesis complete, starting place and route")
 
@@ -467,6 +520,11 @@ def place_and_route(
         }
         if netlist_reused:
             result["netlist_reused"] = True
+        elif reuse_netlist and reuse_skipped_reason:
+            # Say so rather than silently re-synthesizing: a caller that asked
+            # for reuse is reasoning about how long the run should take.
+            result["netlist_reused"] = False
+            result["netlist_reuse_skipped"] = reuse_skipped_reason
         if synth_stderr and not pnr_ok:
             result["synth_stderr"] = synth_stderr
         if seed is not None:

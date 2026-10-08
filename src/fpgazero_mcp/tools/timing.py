@@ -267,8 +267,11 @@ def close_timing(
         else:
             kwargs["seed"] = label["seed"]
             # The netlist does not depend on the placer seed, so synthesize on
-            # the first attempt and reuse it for the rest.
-            kwargs["reuse_netlist"] = i > 0
+            # the first attempt and reuse it for the rest. A caller-supplied
+            # work_dir may already hold a usable netlist, so try to reuse from
+            # attempt one too: place_and_route verifies the netlist's recorded
+            # input fingerprint and re-synthesizes on any mismatch.
+            kwargs["reuse_netlist"] = i > 0 or bool(work_dir)
             record_label = {"seed": label["seed"]}
 
         result = place_and_route(**kwargs)

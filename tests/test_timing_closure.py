@@ -366,6 +366,26 @@ class TestNetlistReuse:
         assert r["work_dir"] == str(scratch_dir)
         assert "work_dir_note" not in r
 
+    def test_supplied_work_dir_attempts_reuse_from_the_first_attempt(
+        self, monkeypatch, scratch_dir
+    ) -> None:
+        """A caller-supplied work_dir may already hold a valid netlist.
+
+        place_and_route verifies the fingerprint and re-synthesizes on a
+        mismatch, so asking for reuse on attempt one is safe.
+        """
+        calls = _mock_pnr(monkeypatch, [_attempt(fmax=40.0), _attempt(fmax=41.0)])
+        close_timing(
+            code="x",
+            top_module="top",
+            target="ice40",
+            device="up5k",
+            target_mhz=999.0,
+            max_attempts=2,
+            work_dir=str(scratch_dir),
+        )
+        assert [c["reuse_netlist"] for c in calls] == [True, True]
+
     def test_sweep_dir_is_outside_the_package(self, monkeypatch) -> None:
         import fpgazero_mcp
 
@@ -611,34 +631,116 @@ class TestPnrSeedArgs:
         assert r["error_code"] == "invalid_input"
         assert "Vivado-only" in r["error"]
 
-    def test_reuse_netlist_skips_yosys(self, monkeypatch, scratch_dir) -> None:
-        from fpgazero_mcp.tools import pnr as pnr_mod
-
-        (scratch_dir / "netlist.json").write_text("{}", encoding="utf-8")
-        captured: list[list[str]] = []
+    @staticmethod
+    def _fake_yosys_runner(captured, pnr_log):
+        """subprocess.run stand-in: yosys writes a netlist, nextpnr returns a log."""
 
         class _P:
-            returncode = 0
-            stdout = NEXTPNR_PASS
-            stderr = ""
+            def __init__(self, rc=0, out=""):
+                self.returncode = rc
+                self.stdout = out
+                self.stderr = ""
 
         def fake_run(cmd, **kwargs):
             captured.append(list(cmd))
-            return _P()
+            if cmd[0] == "yosys":
+                idx = cmd.index("-s")
+                script = Path(cmd[idx + 1]).read_text(encoding="utf-8")
+                for tok in script.split():
+                    if tok.endswith("netlist.json"):
+                        Path(tok).write_text("{}", encoding="utf-8")
+                return _P(0, "")
+            return _P(0, pnr_log)
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        return fake_run
+
+    def _run(self, monkeypatch, scratch_dir, captured, code, **kwargs):
+        from fpgazero_mcp.tools import pnr as pnr_mod
+
+        monkeypatch.setattr(
+            subprocess, "run", self._fake_yosys_runner(captured, NEXTPNR_PASS)
+        )
         monkeypatch.setenv("FPGAZERO_ALLOWED_DIRS", str(scratch_dir))
-
-        r = pnr_mod.place_and_route(
-            code="module top(input clk); endmodule",
+        return pnr_mod.place_and_route(
+            code=code,
             top_module="top",
             target="ice40",
             device="up5k",
+            package="sg48",
+            work_dir=str(scratch_dir),
+            **kwargs,
+        )
+
+    DESIGN_A = "module top(input clk); endmodule"
+    DESIGN_B = "module top(input clk, input rst); endmodule"
+
+    def test_reuse_netlist_skips_yosys(self, monkeypatch, scratch_dir) -> None:
+        """After a run that synthesized, a reuse run must not invoke yosys."""
+        first: list[list[str]] = []
+        self._run(monkeypatch, scratch_dir, first, self.DESIGN_A)
+        assert any(c[0] == "yosys" for c in first), "first run should synthesize"
+
+        second: list[list[str]] = []
+        r = self._run(
+            monkeypatch, scratch_dir, second, self.DESIGN_A, reuse_netlist=True
+        )
+        assert not any(c[0] == "yosys" for c in second), "yosys should be skipped"
+        assert r["netlist_reused"] is True
+
+    def test_reuse_refuses_netlist_it_did_not_produce(
+        self, monkeypatch, scratch_dir
+    ) -> None:
+        """A bare netlist.json has no input fingerprint, so it cannot be trusted."""
+        (scratch_dir / "netlist.json").write_text("{}", encoding="utf-8")
+        captured: list[list[str]] = []
+        r = self._run(
+            monkeypatch, scratch_dir, captured, self.DESIGN_A, reuse_netlist=True
+        )
+        assert any(c[0] == "yosys" for c in captured), "should re-synthesize"
+        assert r["netlist_reused"] is False
+        assert "fingerprint" in r["netlist_reuse_skipped"]
+
+    def test_reuse_refuses_stale_netlist_after_source_edit(
+        self, monkeypatch, scratch_dir
+    ) -> None:
+        """The footgun: edit the HDL, reuse the old work_dir, get the old netlist."""
+        self._run(monkeypatch, scratch_dir, [], self.DESIGN_A)
+
+        captured: list[list[str]] = []
+        r = self._run(
+            monkeypatch, scratch_dir, captured, self.DESIGN_B, reuse_netlist=True
+        )
+        assert any(c[0] == "yosys" for c in captured), "edited sources must re-synth"
+        assert r["netlist_reused"] is False
+        assert r["netlist_reuse_skipped"] == "sources or synthesis options changed"
+
+    def test_reuse_refuses_when_synthesis_options_change(
+        self, monkeypatch, scratch_dir
+    ) -> None:
+        """A different top module means a different netlist, same sources or not."""
+        from fpgazero_mcp.tools import pnr as pnr_mod
+
+        self._run(monkeypatch, scratch_dir, [], self.DESIGN_A)
+
+        captured: list[list[str]] = []
+        monkeypatch.setattr(
+            subprocess, "run", self._fake_yosys_runner(captured, NEXTPNR_PASS)
+        )
+        monkeypatch.setenv("FPGAZERO_ALLOWED_DIRS", str(scratch_dir))
+        r = pnr_mod.place_and_route(
+            code=self.DESIGN_A,
+            top_module="top",
+            target="ice40",
+            device="up5k",
+            package="sg48",
             work_dir=str(scratch_dir),
             reuse_netlist=True,
+            # A different synthesis target changes the generated .ys script.
+            nextpnr_args=None,
+            language="systemverilog",
         )
-        assert not any(c[0] == "yosys" for c in captured), "yosys should be skipped"
-        assert r["netlist_reused"] is True
+        assert any(c[0] == "yosys" for c in captured)
+        assert r["netlist_reused"] is False
 
 
 # --- integration ----------------------------------------------------------

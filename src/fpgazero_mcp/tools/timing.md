@@ -30,11 +30,20 @@ close_timing(
 | nextpnr | `--seed N` | seconds | **once**, then reused |
 | Vivado | strategy directives | minutes | every attempt |
 
-Placer seeds do not change the netlist, so the nextpnr path synthesizes on the
-first attempt and passes `reuse_netlist=True` for the rest, against one shared
-`work_dir`. Vivado strategies include a `synth_design -directive`, which does
-change the netlist, so there is nothing to reuse — which is also why the default
-attempt count is lower there.
+Placer seeds do not change the netlist, so the nextpnr path synthesizes once
+and passes `reuse_netlist=True` for the remaining attempts, against one shared
+`work_dir`. When the caller supplies a `work_dir` that already holds a netlist,
+reuse is attempted from the first attempt too: `place_and_route` records a
+SHA-256 fingerprint of the synthesis inputs (the generated `.ys` script plus
+every source file's contents) beside the netlist, verifies it before reusing,
+and re-synthesizes on any mismatch — reporting `netlist_reused: False` with a
+`netlist_reuse_skipped` reason. The fingerprint is content-based rather than
+mtime-based because `resolve_sources` rewrites `code`/`files` sources into the
+work_dir on every run, which would make an mtime check never reuse.
+
+Vivado strategies include a `synth_design -directive`, which does change the
+netlist, so there is nothing to reuse — which is also why the default attempt
+count is lower there.
 
 ## Vivado strategies
 
