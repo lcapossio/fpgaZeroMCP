@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Callable
 
 from fpgazero_mcp.tools.progress import make_reporter
-from fpgazero_mcp.tools.workspace import data_root, temporary_workspace
+from fpgazero_mcp.paths import data_root
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 _BOARD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 

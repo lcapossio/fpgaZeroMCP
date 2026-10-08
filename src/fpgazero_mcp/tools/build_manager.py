@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
-from fpgazero_mcp.tools.workspace import data_root
+from fpgazero_mcp.paths import data_root
 
 
 @dataclass

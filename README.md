@@ -343,7 +343,7 @@ $env:USERCORES_PATH = "C:\Users\you\my-cores;C:\Users\you\work-cores"
 }
 ```
 
-All paths are scanned on startup alongside the built-in `src/fpgazero_mcp/cores/` directory.
+All paths are scanned on startup alongside the built-in `src/fpgazero_mcp/cores/` directory and `$FPGAZERO_DATA_DIR/cores` (where `import_github_core` and `import_fusesoc_core` write). The bundled directory is treated as read-only — nothing is ever written back into the installed package.
 
 ### Allowed licenses
 
@@ -411,7 +411,7 @@ These are zero-code changes and fully transparent.
 | `USERCORES_PATH` | Extra core search directories (OS path separator delimited) |
 | `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
 | `FPGAZERO_TMPDIR` | Override temporary workspace root directory |
-| `FPGAZERO_DATA_DIR` | Root for persistent server artifacts — build logs, LiteX output, temp workspaces (default: `<install dir>/no_commit`) |
+| `FPGAZERO_DATA_DIR` | Root for persistent server artifacts — build logs, bitstreams, LiteX output, imported cores, temp workspaces (default: `~/.fpgazero_mcp/work`) |
 | `FPGAZERO_ALLOWED_DIRS` | OS pathsep-separated list of extra directories that `project_dir` may read from and `start_build`/`place_and_route` may use as `work_dir` (in addition to cwd and `$HOME`) |
 
 ---

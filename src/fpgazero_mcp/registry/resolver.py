@@ -7,9 +7,13 @@ import logging
 import os
 from pathlib import Path
 
+from fpgazero_mcp.paths import user_cores_dir
 from fpgazero_mcp.registry.manifest import CoreManifest
 
-CORES_DIR = Path(__file__).parent.parent / "cores"
+#: Read-only cores shipped inside the package.
+BUILTIN_CORES_DIR = Path(__file__).parent.parent / "cores"
+#: Backwards-compatible alias.
+CORES_DIR = BUILTIN_CORES_DIR
 CONFIG_FILE = Path.home() / ".fpgazero_mcp" / "config.json"
 LOG = logging.getLogger(__name__)
 
@@ -42,8 +46,21 @@ def _extra_core_paths() -> list[Path]:
 
 
 class CoreRegistry:
-    def __init__(self, cores_dir: Path = CORES_DIR) -> None:
-        self._dir = cores_dir  # built-in / import destination
+    def __init__(self, cores_dir: Path | None = None) -> None:
+        """Load the core registry.
+
+        cores_dir pins both the search path and the import destination to a
+        single directory; it is used by tests and by callers embedding the
+        registry. The default instead searches the package's bundled cores
+        read-only and imports into a writable directory under the data root,
+        because the installed package lives in site-packages.
+        """
+        if cores_dir is not None:
+            self._dir = cores_dir
+            self._search_dirs = [cores_dir]
+        else:
+            self._dir = user_cores_dir()
+            self._search_dirs = [BUILTIN_CORES_DIR, self._dir]
         self._cache: dict[str, tuple[CoreManifest, Path]] = {}
         self._load_all()
 
@@ -75,8 +92,10 @@ class CoreRegistry:
 
     def _load_all(self) -> None:
         self._cache.clear()
-        # Built-in cores first, then extra paths (extra paths win on name clash)
-        self._load_dir(self._dir)
+        # Built-in cores first, then imported cores, then extra paths
+        # (later paths win on name clash).
+        for directory in self._search_dirs:
+            self._load_dir(directory)
         for extra in _extra_core_paths():
             self._load_dir(extra)
 
@@ -162,6 +181,7 @@ class CoreRegistry:
         """Download a GitHub repo and register it as a local core."""
         from fpgazero_mcp.registry.github import import_core
 
+        self._dir.mkdir(parents=True, exist_ok=True)
         result = import_core(
             owner_repo=owner_repo,
             subdir=subdir,

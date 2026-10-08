@@ -22,7 +22,8 @@ from fpgazero_mcp.tools.sources import (
 )
 from fpgazero_mcp.tools.synthesize import SYNTH_CMDS
 from fpgazero_mcp.tools.textutil import truncate_log
-from fpgazero_mcp.tools.workspace import data_root, temporary_workspace
+from fpgazero_mcp.paths import data_root
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 # nextpnr binary per target
 NEXTPNR_BIN = {

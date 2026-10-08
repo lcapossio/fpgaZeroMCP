@@ -26,7 +26,8 @@ from fpgazero_mcp.tools.sources import (
     validate_top_module,
 )
 from fpgazero_mcp.tools.textutil import truncate_log
-from fpgazero_mcp.tools.workspace import data_root, temporary_workspace
+from fpgazero_mcp.paths import data_root
+from fpgazero_mcp.tools.workspace import temporary_workspace
 
 # Xilinx part numbers: letters, digits, dash (e.g. xc7a35ticsg324-1L)
 _PART_RE = re.compile(r"^[A-Za-z0-9\-]+$")
