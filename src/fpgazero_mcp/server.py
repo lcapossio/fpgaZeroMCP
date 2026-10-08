@@ -321,6 +321,75 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Persistent working directory for incremental runs. Returned in response for reuse.",
                     },
+                    "seed": {
+                        "type": "integer",
+                        "description": (
+                            "nextpnr placer seed. Different seeds give different "
+                            "timing for the same netlist; close_timing sweeps them."
+                        ),
+                    },
+                    "target_mhz": {
+                        "type": "number",
+                        "description": (
+                            "Clock target to judge timing against. Defaults to the "
+                            "board preset clock. Sets timing.meets_target."
+                        ),
+                    },
+                    "allow_timing_fail": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Let nextpnr return a bitstream and an achieved fmax "
+                            "even when the clock constraint is missed, instead of "
+                            "failing the run."
+                        ),
+                    },
+                    "synth_directive": {
+                        "type": "string",
+                        "enum": [
+                            "default",
+                            "PerformanceOptimized",
+                            "AreaOptimized_high",
+                            "AlternateRoutability",
+                            "RuntimeOptimized",
+                        ],
+                        "default": "default",
+                        "description": "Vivado synth_design directive (Xilinx only)",
+                    },
+                    "place_directive": {
+                        "type": "string",
+                        "enum": [
+                            "default",
+                            "Explore",
+                            "ExtraTimingOpt",
+                            "ExtraPostPlacementOpt",
+                            "WLDrivenBlockPlacement",
+                            "RuntimeOptimized",
+                        ],
+                        "default": "default",
+                        "description": "Vivado place_design directive (Xilinx only)",
+                    },
+                    "route_directive": {
+                        "type": "string",
+                        "enum": [
+                            "default",
+                            "Explore",
+                            "AggressiveExplore",
+                            "NoTimingRelaxation",
+                            "MoreGlobalIterations",
+                            "HigherDelayCost",
+                            "RuntimeOptimized",
+                        ],
+                        "default": "default",
+                        "description": "Vivado route_design directive (Xilinx only)",
+                    },
+                    "phys_opt": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Run Vivado phys_opt_design after placement (Xilinx only)"
+                        ),
+                    },
                     "return_bitstream_b64": {
                         "type": "boolean",
                         "default": False,
@@ -328,6 +397,140 @@ async def handle_list_tools() -> list[Tool]:
                             "Include the bitstream as base64 in the response. "
                             "Default: only bitstream_path (file on disk) is returned."
                         ),
+                    },
+                },
+                "required": ["top_module"],
+            },
+        ),
+        Tool(
+            name="close_timing",
+            description=(
+                "Sweep place-and-route configurations until a clock target is met, "
+                "then return the best result. On nextpnr targets it varies the placer "
+                "seed against a netlist synthesized once; on Xilinx parts it varies "
+                "Vivado strategy directives. Use this instead of calling "
+                "place_and_route in a loop when a design misses timing. "
+                "'closed' says whether the target was met; a design that routes but "
+                "misses timing still returns its best bitstream."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "HDL source (single-file mode)",
+                    },
+                    "files": {
+                        "type": "object",
+                        "description": "Multi-file mode: mapping of filename to source code",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "project_dir": {
+                        "type": "string",
+                        "description": "Disk mode: path to directory containing HDL source files",
+                    },
+                    "top_module": {"type": "string", "description": "Top module name"},
+                    "board": {
+                        "type": "string",
+                        "description": (
+                            "Board preset - sets target/device/package and supplies "
+                            "the default clock target. See list_boards."
+                        ),
+                    },
+                    "target": {
+                        "type": "string",
+                        "enum": ["ice40", "ecp5", "nexus", "gowin", "xilinx"],
+                        "description": "FPGA family (not needed when board is given)",
+                    },
+                    "device": {"type": "string", "description": "Device / Xilinx part"},
+                    "package": {"type": "string", "description": "Device package"},
+                    "constraints": {
+                        "type": "string",
+                        "description": (
+                            "PCF/LPF/PDC/CST/XDC text; auto-detected from "
+                            "project_dir if omitted"
+                        ),
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["verilog", "systemverilog", "vhdl"],
+                        "default": "verilog",
+                    },
+                    "target_mhz": {
+                        "type": "number",
+                        "description": (
+                            "Clock target to close on. Defaults to the board preset "
+                            "clock. Without either, the sweep reports the best fmax "
+                            "found but cannot say whether timing closed."
+                        ),
+                    },
+                    "max_attempts": {
+                        "type": "integer",
+                        "description": (
+                            "Configurations to try (default 4 for nextpnr, 3 for "
+                            "Vivado). max_attempts x timeout must stay within 3600 s."
+                        ),
+                    },
+                    "seeds": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": (
+                            "Explicit nextpnr placer seeds (nextpnr targets only)"
+                        ),
+                    },
+                    "strategies": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "default",
+                                "performance",
+                                "explore",
+                                "no_timing_relaxation",
+                            ],
+                        },
+                        "description": (
+                            "Explicit Vivado strategy names (Xilinx targets only)"
+                        ),
+                    },
+                    "stop_when_met": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "Stop at the first attempt that meets the target. "
+                            "False runs every attempt and reports the spread."
+                        ),
+                    },
+                    "nextpnr_args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Extra nextpnr arguments applied to every attempt"
+                        ),
+                    },
+                    "work_dir": {
+                        "type": "string",
+                        "description": (
+                            "Persistent working directory. Reusing one from a "
+                            "previous sweep lets nextpnr attempts skip synthesis."
+                        ),
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "default": 300,
+                        "description": (
+                            "Timeout in seconds PER ATTEMPT, not for the whole sweep"
+                        ),
+                    },
+                    "backend": {
+                        "type": "string",
+                        "enum": ["yosys", "vivado"],
+                        "default": "yosys",
+                    },
+                    "return_bitstream_b64": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Also include the winning bitstream as base64",
                     },
                 },
                 "required": ["top_module"],
@@ -953,6 +1156,40 @@ async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
                     backend=arguments.get("backend", "yosys"),
                     litex_board=arguments.get("litex_board"),
                     litex_args=arguments.get("litex_args"),
+                    return_bitstream_b64=arguments.get("return_bitstream_b64", False),
+                    seed=arguments.get("seed"),
+                    target_mhz=arguments.get("target_mhz"),
+                    allow_timing_fail=arguments.get("allow_timing_fail", False),
+                    synth_directive=arguments.get("synth_directive", "default"),
+                    place_directive=arguments.get("place_directive", "default"),
+                    route_directive=arguments.get("route_directive", "default"),
+                    phys_opt=arguments.get("phys_opt", False),
+                    progress=_tool_progress,
+                )
+            case "close_timing":
+                from fpgazero_mcp.tools.timing import close_timing
+
+                result = await asyncio.to_thread(
+                    close_timing,
+                    code=arguments.get("code", ""),
+                    top_module=arguments.get("top_module", ""),
+                    target=arguments.get("target", ""),
+                    device=arguments.get("device", ""),
+                    package=arguments.get("package", ""),
+                    constraints=arguments.get("constraints", ""),
+                    language=arguments.get("language", "verilog"),
+                    files=arguments.get("files"),
+                    project_dir=arguments.get("project_dir"),
+                    board=arguments.get("board"),
+                    target_mhz=arguments.get("target_mhz"),
+                    max_attempts=arguments.get("max_attempts", 0),
+                    seeds=arguments.get("seeds"),
+                    strategies=arguments.get("strategies"),
+                    stop_when_met=arguments.get("stop_when_met", True),
+                    nextpnr_args=arguments.get("nextpnr_args"),
+                    work_dir=arguments.get("work_dir"),
+                    timeout=_clamp_timeout(arguments.get("timeout", 300), 300),
+                    backend=arguments.get("backend", "yosys"),
                     return_bitstream_b64=arguments.get("return_bitstream_b64", False),
                     progress=_tool_progress,
                 )

@@ -18,6 +18,7 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst`/`.xdc` in your project directory
 - **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus/Xilinx)
 - **First-class Vivado flow**: `place_and_route` with `target="xilinx"` runs the full Vivado batch flow (auto-generated TCL: synth, place, route, `write_bitstream`) — no TCL knowledge needed; plus raw batch runs through `start_build`, Xilinx builds through LiteX, and structured Vivado log parsing in `build_status`
+- **Timing closure loop**: `close_timing` sweeps nextpnr placer seeds (synthesizing once and reusing the netlist) or Vivado strategy directives until the clock target is met, reporting every attempt and returning the best bitstream
 - **Formal verification**: `formal_verify` drives SymbiYosys — bounded model checking, unbounded k-induction proofs, and cover-reachability, returning the failing assertion and counterexample trace
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
@@ -180,6 +181,7 @@ find it, use the module form instead: `"command": "python", "args": ["-m", "fpga
 | `place_and_route` | Full RTL-to-bitstream: Yosys + nextpnr (open targets) or Vivado batch (`target="xilinx"`). Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
 | `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
+| `close_timing` | Sweep place-and-route until a clock target is met: varies nextpnr placer seeds (one synthesis, reused) or Vivado strategy directives. Reports every attempt, says whether timing `closed`, and returns the best attempt's bitstream |
 
 ### Verification
 

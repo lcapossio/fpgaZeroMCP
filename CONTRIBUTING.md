@@ -62,6 +62,7 @@ src/fpgazero_mcp/      The one installed package — nothing else goes on sys.pa
     simulate.py        iverilog + vvp / GHDL simulation
     formal.py          SymbiYosys formal verification (bmc / prove / cover)
     pnr.py             Yosys + nextpnr place-and-route pipeline
+    timing.py          Timing-closure sweep over seeds / Vivado directives
     vivado.py          Vivado batch place-and-route backend
     lsp.py             Verilator / Verible / GHDL diagnostics + formatting
     litex.py           LiteX SoC framework wrappers
@@ -74,6 +75,7 @@ src/fpgazero_mcp/      The one installed package — nothing else goes on sys.pa
     resolver.py        Loads cores/, serves list/get/generate/import
     github.py          GitHub search + download with retry logic
     fusesoc.py         FuseSoC CAPI2 parser
+  paths.py             Writable locations for runtime state (never inside the package)
   cores/
     uart_tx/           Reference core (demonstrates core.json format)
     fifo/              Reference core
@@ -84,6 +86,8 @@ tests/
   test_server_dispatch.py    MCP dispatch tests
   test_github_import.py      GitHub import license/path tests
   test_formal.py             Formal verification: sby log parsing + .sby generation
+  test_timing_closure.py     Timing-closure sweep: attempt planning, best-of-N, reuse
+  test_paths.py              Runtime state stays out of the installed package
 ```
 
 ### Adding a new synthesis target

@@ -32,6 +32,34 @@ from fpgazero_mcp.tools.workspace import temporary_workspace
 # Xilinx part numbers: letters, digits, dash (e.g. xc7a35ticsg324-1L)
 _PART_RE = re.compile(r"^[A-Za-z0-9\-]+$")
 
+# Directives are interpolated into the generated TCL, so they are restricted to
+# a known-good set rather than accepting arbitrary text. These are the ones that
+# matter for timing closure; Vivado accepts more.
+SYNTH_DIRECTIVES = (
+    "default",
+    "PerformanceOptimized",
+    "AreaOptimized_high",
+    "AlternateRoutability",
+    "RuntimeOptimized",
+)
+PLACE_DIRECTIVES = (
+    "default",
+    "Explore",
+    "ExtraTimingOpt",
+    "ExtraPostPlacementOpt",
+    "WLDrivenBlockPlacement",
+    "RuntimeOptimized",
+)
+ROUTE_DIRECTIVES = (
+    "default",
+    "Explore",
+    "AggressiveExplore",
+    "NoTimingRelaxation",
+    "MoreGlobalIterations",
+    "HigherDelayCost",
+    "RuntimeOptimized",
+)
+
 # create_clock -period <ns> in XDC text
 _RE_XDC_PERIOD = re.compile(r"create_clock\s+[^\n]*-period\s+([\d.]+)")
 
@@ -62,8 +90,18 @@ def _generate_tcl(
     part: str,
     xdc_file: str | None,
     bit_file: str,
+    synth_directive: str = "default",
+    place_directive: str = "default",
+    route_directive: str = "default",
+    phys_opt: bool = False,
 ) -> str:
-    """Build the non-project batch flow script."""
+    """Build the non-project batch flow script.
+
+    The *_directive arguments steer Vivado effort/strategy; "default" omits the
+    flag entirely, so an unsteered call emits exactly the original script.
+    phys_opt inserts a physical-optimization pass after placement, the usual
+    next lever once placement alone will not close timing.
+    """
     lines: list[str] = []
     if language == "vhdl":
         for p in src_paths:
@@ -74,11 +112,17 @@ def _generate_tcl(
             lines.append(f"read_verilog {flag}{_tcl_path(p)}")
     if xdc_file:
         lines.append(f"read_xdc {_tcl_path(xdc_file)}")
+
+    def _flag(directive: str) -> str:
+        return "" if directive == "default" else f" -directive {directive}"
+
+    lines.append(f"synth_design -top {top_module} -part {part}{_flag(synth_directive)}")
+    lines.append("opt_design")
+    lines.append(f"place_design{_flag(place_directive)}")
+    if phys_opt:
+        lines.append("phys_opt_design")
+    lines.append(f"route_design{_flag(route_directive)}")
     lines += [
-        f"synth_design -top {top_module} -part {part}",
-        "opt_design",
-        "place_design",
-        "route_design",
         "report_utilization",
         "report_timing_summary -no_detailed_paths",
         f"write_bitstream -force {_tcl_path(bit_file)}",
@@ -144,6 +188,10 @@ def vivado_place_and_route(
     work_dir: str | None = None,
     timeout: int = 600,
     return_bitstream_b64: bool = False,
+    synth_directive: str = "default",
+    place_directive: str = "default",
+    route_directive: str = "default",
+    phys_opt: bool = False,
     progress: Callable[[float, str], None] | None = None,
 ) -> dict:
     """Run the full Vivado RTL-to-bitstream flow on the given sources.
@@ -151,6 +199,12 @@ def vivado_place_and_route(
     part: full Xilinx part number, e.g. "xc7a35tcpg236-1".
     constraints: XDC text; if omitted and project_dir is used, auto-detects
                  a .xdc file from the project directory.
+
+    synth_directive / place_directive / route_directive: Vivado strategy
+                 directives, each one of the corresponding *_DIRECTIVES tuple.
+                 "default" leaves the flag off. Sweeping these is how
+                 `close_timing` attacks a timing failure on Xilinx parts.
+    phys_opt: run phys_opt_design after placement.
     """
     report = make_reporter(progress)
 
@@ -179,6 +233,20 @@ def vivado_place_and_route(
             "error": f"Invalid Xilinx part number: '{part}'",
             "error_code": "invalid_input",
         }
+
+    for name, value, allowed in (
+        ("synth_directive", synth_directive, SYNTH_DIRECTIVES),
+        ("place_directive", place_directive, PLACE_DIRECTIVES),
+        ("route_directive", route_directive, ROUTE_DIRECTIVES),
+    ):
+        if value not in allowed:
+            return {
+                "success": False,
+                "error": (
+                    f"Invalid {name} '{value}'. Must be one of: {', '.join(allowed)}."
+                ),
+                "error_code": "invalid_input",
+            }
 
     vivado_bin = shutil.which("vivado")
     if not vivado_bin:
@@ -231,7 +299,18 @@ def vivado_place_and_route(
 
         with open(tcl_file, "w", encoding="utf-8") as f:
             f.write(
-                _generate_tcl(src_paths, language, top_module, part, xdc_file, bit_file)
+                _generate_tcl(
+                    src_paths,
+                    language,
+                    top_module,
+                    part,
+                    xdc_file,
+                    bit_file,
+                    synth_directive,
+                    place_directive,
+                    route_directive,
+                    phys_opt,
+                )
             )
 
         report(0.1, "running vivado batch flow (synth, place, route, bitstream)")

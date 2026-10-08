@@ -83,6 +83,14 @@ def place_and_route(
     work_dir: str | None = None,
     timeout: int = 300,
     backend: str = "yosys",
+    seed: int | None = None,
+    target_mhz: float | None = None,
+    allow_timing_fail: bool = False,
+    reuse_netlist: bool = False,
+    synth_directive: str = "default",
+    place_directive: str = "default",
+    route_directive: str = "default",
+    phys_opt: bool = False,
     litex_board: str | None = None,
     litex_args: list[str] | None = None,
     return_bitstream_b64: bool = False,
@@ -98,6 +106,18 @@ def place_and_route(
     language: "verilog" (default), "systemverilog", or "vhdl".
     board: optional board preset (e.g. "icebreaker") — sets target/device/package/clock.
     nextpnr_args: extra arguments passed to nextpnr (e.g. ["--seed", "42"]).
+    seed: nextpnr placer seed. Different seeds give different timing results
+          for the same netlist; sweeping them is what `close_timing` does.
+    target_mhz: clock target to judge timing against. Defaults to the board
+                preset's clock when a board is given.
+    allow_timing_fail: pass --timing-allow-fail to nextpnr, so a design that
+                routes but misses timing still returns a bitstream and an
+                achieved fmax instead of failing the run. Off by default so
+                a plain call still treats missed timing as a failure.
+    reuse_netlist: skip synthesis and reuse the netlist.json already present in
+                work_dir. Requires work_dir. Lets a seed sweep synthesize once
+                and re-run place-and-route only, since the netlist does not
+                depend on the placer seed.
     work_dir: path to a persistent working directory. If provided, files and
               synthesis artifacts are kept across runs for incremental workflows.
               The path is returned in the response for reuse.
@@ -154,11 +174,20 @@ def place_and_route(
             work_dir=work_dir,
             timeout=timeout,
             return_bitstream_b64=return_bitstream_b64,
+            synth_directive=synth_directive,
+            place_directive=place_directive,
+            route_directive=route_directive,
+            phys_opt=phys_opt,
             progress=progress,
         )
         if board:
             result["board"] = board
-        if preset and preset.get("clock_mhz") and "timing" in result:
+        if target_mhz and "timing" in result:
+            result["timing"]["target_mhz"] = target_mhz
+            fmax = result["timing"].get("max_freq_mhz")
+            if fmax is not None:
+                result["timing"]["meets_target"] = fmax >= target_mhz
+        elif preset and preset.get("clock_mhz") and "timing" in result:
             target_mhz = preset["clock_mhz"]
             result["timing"]["target_mhz"] = target_mhz
             fmax = result["timing"].get("max_freq_mhz")
@@ -192,6 +221,29 @@ def place_and_route(
         return {"success": False, "error": top_err, "error_code": "invalid_input"}
 
     # Determine whether to use a persistent work_dir or a temp workspace
+    if backend == "yosys" and target != "xilinx":
+        if (
+            synth_directive != "default"
+            or place_directive != "default"
+            or route_directive != "default"
+            or phys_opt
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "synth_directive/place_directive/route_directive/phys_opt are "
+                    "Vivado-only. For nextpnr targets use `seed` instead."
+                ),
+                "error_code": "invalid_input",
+            }
+
+    if reuse_netlist and not work_dir:
+        return {
+            "success": False,
+            "error": "reuse_netlist requires work_dir (the netlist is read from it).",
+            "error_code": "invalid_input",
+        }
+
     use_persistent = bool(work_dir)
     persistent_dir: str = ""
     if use_persistent:
@@ -256,48 +308,60 @@ def place_and_route(
         import time as _time
 
         deadline = _time.monotonic() + timeout
-        synth_timeout = min(max(timeout // 3, 30), timeout)
-        report(0.1, "running yosys synthesis")
-        try:
-            synth = subprocess.run(
-                ["yosys", "-s", ys_script],
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=synth_timeout,
-            )
-        except FileNotFoundError:
-            return {
-                "success": False,
-                "error": "'yosys' not found. Install OSS CAD Suite.",
-                "error_code": "tool_not_found",
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": f"Synthesis timed out after {synth_timeout} s.",
-                "error_code": "timeout",
-            }
+        synth_stdout = ""
+        synth_stderr = ""
+        netlist_reused = False
 
-        if synth.returncode != 0:
-            return {
-                "success": False,
-                "stage": "synthesis",
-                "error": "Synthesis failed — see stdout/stderr.",
-                "error_code": "synthesis_failed",
-                "stdout": synth.stdout,
-                "stderr": synth.stderr,
-            }
+        if reuse_netlist and os.path.exists(netlist_json):
+            # Seed sweeps re-run place-and-route against an unchanged netlist;
+            # re-synthesizing it every attempt costs time and yields nothing.
+            netlist_reused = True
+            report(0.1, "reusing netlist from work_dir, skipping synthesis")
+        else:
+            synth_timeout = min(max(timeout // 3, 30), timeout)
+            report(0.1, "running yosys synthesis")
+            try:
+                synth = subprocess.run(
+                    ["yosys", "-s", ys_script],
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=synth_timeout,
+                )
+            except FileNotFoundError:
+                return {
+                    "success": False,
+                    "error": "'yosys' not found. Install OSS CAD Suite.",
+                    "error_code": "tool_not_found",
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "success": False,
+                    "error": f"Synthesis timed out after {synth_timeout} s.",
+                    "error_code": "timeout",
+                }
+            synth_stdout = synth.stdout
+            synth_stderr = synth.stderr
 
-        if not os.path.exists(netlist_json):
-            return {
-                "success": False,
-                "stage": "synthesis",
-                "error": "Yosys did not produce a netlist JSON.",
-                "error_code": "synthesis_failed",
-                "stdout": synth.stdout,
-                "stderr": synth.stderr,
-            }
+            if synth.returncode != 0:
+                return {
+                    "success": False,
+                    "stage": "synthesis",
+                    "error": "Synthesis failed — see stdout/stderr.",
+                    "error_code": "synthesis_failed",
+                    "stdout": synth.stdout,
+                    "stderr": synth.stderr,
+                }
+
+            if not os.path.exists(netlist_json):
+                return {
+                    "success": False,
+                    "stage": "synthesis",
+                    "error": "Yosys did not produce a netlist JSON.",
+                    "error_code": "synthesis_failed",
+                    "stdout": synth.stdout,
+                    "stderr": synth.stderr,
+                }
 
         report(0.5, "synthesis complete, starting place and route")
 
@@ -327,8 +391,16 @@ def place_and_route(
             out_file,
             effective_cst,
         )
-        if nextpnr_args:
-            cmd.extend(nextpnr_args)
+        extra_args = list(nextpnr_args or [])
+        if seed is not None and "--seed" not in extra_args:
+            extra_args += ["--seed", str(seed)]
+        if allow_timing_fail and "--timing-allow-fail" not in extra_args:
+            # Without this nextpnr treats a missed clock constraint as a hard
+            # error, which would make the attempts in a sweep incomparable:
+            # a near miss would return no fmax at all.
+            extra_args.append("--timing-allow-fail")
+        if extra_args:
+            cmd.extend(extra_args)
 
         pnr_timeout = int(deadline - _time.monotonic())
         if pnr_timeout < 10:
@@ -372,7 +444,7 @@ def place_and_route(
         # don't flood the AI client's context (timing/utilization are
         # returned as structured fields anyway).
         synth_log, synth_trunc = (
-            truncate_log(synth.stdout) if pnr_ok else (synth.stdout, False)
+            truncate_log(synth_stdout) if pnr_ok else (synth_stdout, False)
         )
         pnr_stdout, pnr_trunc = (
             truncate_log(pnr.stdout) if pnr_ok else (pnr.stdout, False)
@@ -393,19 +465,32 @@ def place_and_route(
             "pnr_stdout": pnr_stdout,
             "pnr_stderr": pnr.stderr,
         }
+        if netlist_reused:
+            result["netlist_reused"] = True
+        if synth_stderr and not pnr_ok:
+            result["synth_stderr"] = synth_stderr
+        if seed is not None:
+            result["seed"] = seed
         if synth_trunc or pnr_trunc:
             result["logs_truncated"] = True
         if not pnr_ok:
             result["error"] = "Place and route failed — see pnr_stdout/pnr_stderr."
             result["error_code"] = "pnr_failed"
 
-        # Evaluate timing against board clock target
-        if preset and preset.get("clock_mhz"):
-            target_mhz = preset["clock_mhz"]
+        # Evaluate timing against the explicit target, else the board clock.
+        effective_target = target_mhz
+        if effective_target is None and preset and preset.get("clock_mhz"):
+            effective_target = preset["clock_mhz"]
+        if effective_target:
             fmax = result["timing"].get("max_freq_mhz")
-            result["timing"]["target_mhz"] = target_mhz
+            result["timing"]["target_mhz"] = effective_target
             if fmax is not None:
-                result["timing"]["meets_target"] = fmax >= target_mhz
+                result["timing"]["meets_target"] = fmax >= effective_target
+
+        # "routed" is deliberately distinct from "success": with
+        # allow_timing_fail a design can route and produce a bitstream while
+        # still missing its clock target, and a sweep needs to tell those apart.
+        result["routed"] = pnr_ok and os.path.exists(out_file)
 
         if board:
             result["board"] = board
