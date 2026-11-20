@@ -10,15 +10,20 @@ status/progress queries so the caller can poll periodically.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from fpgazero_mcp.paths import data_root
+
+if TYPE_CHECKING:
+    from fpgazero_mcp.tools.build_parser import BuildLogParser
 
 
 @dataclass
@@ -77,28 +82,79 @@ class BuildRecord:
         except FileNotFoundError:
             return ""
 
-    # Vivado/Quartus logs can reach hundreds of MB; parsing the whole file on
-    # every status poll gets slower as the build progresses. The interesting
-    # state (current phase, latest utilization/timing) is at the end anyway.
-    _PARSE_WINDOW_BYTES = 2 * 1024 * 1024
+    # The log is parsed incrementally: each status poll parses only the bytes
+    # written since the previous poll, so a poll costs the same at minute 1 and
+    # hour 3 of a Vivado run, and counts/tool detection cover the whole log.
+    _parser: BuildLogParser | None = field(default=None, init=False, repr=False)
+    _parse_offset: int = field(default=0, init=False, repr=False)
+    _parse_skipped: int = field(default=0, init=False, repr=False)
+    _parse_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
-    def parse_window(self) -> str:
-        """Return the last _PARSE_WINDOW_BYTES of the log for parsing."""
-        try:
-            size = os.path.getsize(self.log_path)
-            if size <= self._PARSE_WINDOW_BYTES:
-                return self.full_log()
-            with open(self.log_path, "rb") as f:
-                f.seek(size - self._PARSE_WINDOW_BYTES)
-                data = f.read().decode("utf-8", errors="replace")
-            # Drop the first (likely partial) line
-            return data.split("\n", 1)[-1]
-        except FileNotFoundError:
-            return ""
+    # Read granularity for catching up on new log output.
+    _PARSE_CHUNK_BYTES = 4 * 1024 * 1024
+    # Most unparsed backlog one poll will work through (~4 s of parsing). If a
+    # build is first polled after it has already written more than this, the
+    # middle of the log is skipped: the head (tool banner) and the most recent
+    # output are what the status needs. Reported as log_bytes_skipped.
+    _PARSE_MAX_CATCHUP_BYTES = 8 * 1024 * 1024
+    _PARSE_HEAD_BYTES = 64 * 1024
+
+    def build_info(self) -> dict:
+        """Parse any new log output and return the structured build info."""
+        from fpgazero_mcp.tools.build_parser import BuildLogParser
+
+        with self._parse_lock:
+            if self._parser is None:
+                self._parser = BuildLogParser()
+            try:
+                self._advance_parser(self._parser)
+            except FileNotFoundError:
+                pass
+            info = self._parser.result()
+        if self._parse_skipped:
+            info["log_bytes_skipped"] = self._parse_skipped
+        return info
+
+    def _advance_parser(self, parser: BuildLogParser) -> None:
+        # The monitor thread sets returncode only after the process has exited
+        # and its log is closed, so once it is set the file is complete and a
+        # final unterminated line can be parsed too.
+        finished = self.returncode is not None
+        size = os.path.getsize(self.log_path)
+        with open(self.log_path, "rb") as f:
+            if size - self._parse_offset > self._PARSE_MAX_CATCHUP_BYTES:
+                if self._parse_offset == 0:
+                    head = f.read(self._PARSE_HEAD_BYTES)
+                    head = head[: head.rfind(b"\n") + 1]
+                    parser.feed(head.decode("utf-8", errors="replace"))
+                    self._parse_offset = len(head)
+                resume = size - self._PARSE_MAX_CATCHUP_BYTES
+                # Resume at the start of the next full line.
+                f.seek(resume)
+                f.readline()
+                self._parse_skipped += f.tell() - self._parse_offset
+                self._parse_offset = f.tell()
+            f.seek(self._parse_offset)
+            while True:
+                chunk = f.read(self._PARSE_CHUNK_BYTES)
+                if not chunk:
+                    break
+                at_eof = len(chunk) < self._PARSE_CHUNK_BYTES
+                if not (at_eof and finished):
+                    # Parse up to the last complete line; the rest is picked
+                    # up once its newline has been written.
+                    cut = chunk.rfind(b"\n") + 1
+                    if cut == 0 and at_eof:
+                        break
+                    if cut:  # else: a chunk-sized line — parse it as is
+                        chunk = chunk[:cut]
+                    f.seek(self._parse_offset + len(chunk))
+                parser.feed(chunk.decode("utf-8", errors="replace"))
+                self._parse_offset += len(chunk)
 
     def to_dict(self, tail_lines: int = 20, parse: bool = True) -> dict:
-        from fpgazero_mcp.tools.build_parser import parse_build_log
-
         result = {
             "build_id": self.build_id,
             "label": self.label,
@@ -110,7 +166,7 @@ class BuildRecord:
             "tail": self.tail(tail_lines),
         }
         if parse:
-            result["build_info"] = parse_build_log(self.parse_window())
+            result["build_info"] = self.build_info()
         return result
 
 
@@ -158,7 +214,10 @@ def _validate_build_cmd(cmd: list[str]) -> str | None:
     """Return an error string if cmd is not in the allowlist, else None."""
     if not cmd:
         return "Empty command."
-    binary = os.path.basename(cmd[0]).removesuffix(".exe").removesuffix(".EXE")
+    binary = os.path.basename(cmd[0])
+    stem, ext = os.path.splitext(binary)
+    if ext.lower() in _WIN_EXE_SUFFIXES:
+        binary = stem
     is_python = binary == _PYTHON_PREFIX or binary.startswith(_PYTHON_PREFIX + "3")
     if binary not in _ALLOWED_COMMANDS and not is_python:
         return (
@@ -173,6 +232,36 @@ def _validate_build_cmd(cmd: list[str]) -> str | None:
         if not (module.startswith("litex_boards.") or module.startswith("litex.")):
             return f"Python module '{module}' is not allowed. Only litex_boards.* and litex.* are permitted."
     return None
+
+
+# Executable suffixes a Windows command may carry; Vivado is vivado.bat there.
+_WIN_EXE_SUFFIXES = (".exe", ".bat", ".cmd")
+# cmd.exe parses a batch file's command line itself, so these characters in
+# an argument could start a second command (Python's list quoting only
+# protects whitespace). Refused for .bat/.cmd launchers.
+_CMD_METACHARS = frozenset('&|<>^%!"\r\n')
+
+
+def _resolve_executable(
+    cmd: list[str], path: str | None = None
+) -> tuple[list[str], str | None]:
+    """Resolve cmd[0] on PATH; returns (command to run, error or None).
+
+    Popen doesn't apply PATHEXT on Windows, so a bare "vivado" (vivado.bat)
+    would not be found; shutil.which does. Unresolvable commands are passed
+    through unchanged so Popen reports them as not found.
+    """
+    exe = shutil.which(cmd[0], path=path) or cmd[0]
+    if exe.lower().endswith((".bat", ".cmd")):
+        for arg in cmd[1:]:
+            if _CMD_METACHARS.intersection(arg):
+                return cmd, (
+                    f"Argument {arg!r} contains a character cmd.exe treats "
+                    f"specially, which isn't allowed when the command is a "
+                    f"batch file ({os.path.basename(exe)}): "
+                    + " ".join(sorted(_CMD_METACHARS - {"\r", "\n"}))
+                )
+    return [exe, *cmd[1:]], None
 
 
 def _validate_work_dir(work_dir: str | None) -> str | None:
@@ -264,6 +353,10 @@ class BuildManager:
         if env:
             proc_env.update(env)
 
+        run_cmd, err = _resolve_executable(cmd, proc_env.get("PATH"))
+        if err:
+            return {"success": False, "error": err, "error_code": "not_allowed"}
+
         # Run the build in its own process group/session so cancel() can
         # terminate the whole tree (e.g. LiteX spawning yosys/nextpnr), not
         # just the immediate child.
@@ -276,7 +369,7 @@ class BuildManager:
         try:
             log_file = open(log_path, "w", encoding="utf-8")
             proc = subprocess.Popen(
-                cmd,
+                run_cmd,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 cwd=cwd,

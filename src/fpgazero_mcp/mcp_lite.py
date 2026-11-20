@@ -236,7 +236,7 @@ class Server:
     # Transport — newline-delimited JSON over stdio
     # ------------------------------------------------------------------
 
-    def _send(self, response: dict) -> None:
+    def _send(self, response: dict | list) -> None:
         """Write one response line to stdout.
 
         Called only from coroutines on the event loop thread, with no await
@@ -279,6 +279,30 @@ class Server:
         response = await self._dispatch(message)
         if response is not None:
             self._send(response)
+
+    async def _handle_batch(self, batch: list) -> None:
+        """Handle a JSON-RPC batch (allowed by the 2025-03-26 revision).
+
+        Members run concurrently; the replies go back as one array, without
+        entries for notifications, and nothing at all if every member was one.
+        Batch members aren't tracked for notifications/cancelled.
+        """
+        if not batch:
+            self._send(self._make_error(None, -32600, "Invalid Request: empty batch"))
+            return
+
+        async def _one(member: object) -> dict | None:
+            if not isinstance(member, dict):
+                return self._make_error(None, -32600, "Invalid Request")
+            if member.get("method") == "notifications/cancelled":
+                self._cancel_request((member.get("params") or {}).get("requestId"))
+                return None
+            return await self._dispatch(member)
+
+        replies = await asyncio.gather(*(_one(m) for m in batch))
+        responses = [r for r in replies if r is not None]
+        if responses:
+            self._send(responses)
 
     def _cancel_request(self, request_id: object) -> None:
         """Handle notifications/cancelled: abort the in-flight request task.
@@ -323,6 +347,17 @@ class Server:
             except json.JSONDecodeError as exc:
                 logger.warning("Malformed JSON from client: %s", exc)
                 self._send(self._make_error(None, -32700, f"Parse error: {exc}"))
+                continue
+
+            if isinstance(message, list):
+                batch_task = asyncio.create_task(self._handle_batch(message))
+                pending.add(batch_task)
+                batch_task.add_done_callback(pending.discard)
+                continue
+            if not isinstance(message, dict):
+                # Valid JSON but not a request object (e.g. a bare number):
+                # answer it rather than letting .get() kill the read loop.
+                self._send(self._make_error(None, -32600, "Invalid Request"))
                 continue
 
             if message.get("method") == "notifications/cancelled":

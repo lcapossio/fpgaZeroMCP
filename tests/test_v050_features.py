@@ -248,40 +248,6 @@ class TestCheckTools:
         assert r["total"] == len(r["tools"])
 
 
-# ---------------------------------------------------------------------------
-# build_status parse window
-# ---------------------------------------------------------------------------
-
-
-class TestParseWindow:
-    def _record(self, tmp: Path, content: bytes):
-        from fpgazero_mcp.tools.build_manager import BuildRecord
-
-        log = tmp / "b.log"
-        log.write_bytes(content)
-        return BuildRecord(
-            build_id="x",
-            label="",
-            cmd=[],
-            log_path=str(log),
-            work_dir=".",
-            start_time=0.0,
-        )
-
-    def test_small_log_returned_whole(self) -> None:
-        tmp = Path(tempfile_dir())
-        rec = self._record(tmp, b"line1\nline2\n")
-        assert rec.parse_window() == "line1\nline2\n"
-
-    def test_large_log_returns_tail_window(self) -> None:
-        tmp = Path(tempfile_dir())
-        blob = b"x" * (3 * 1024 * 1024) + b"\nlast line\n"
-        rec = self._record(tmp, blob)
-        window = rec.parse_window()
-        assert len(window) <= rec._PARSE_WINDOW_BYTES
-        assert window.endswith("last line\n")
-
-
 def tempfile_dir() -> str:
     import tempfile
 

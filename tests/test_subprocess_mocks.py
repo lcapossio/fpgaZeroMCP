@@ -919,6 +919,8 @@ class TestGithubMocked:
             raise urllib.error.URLError("dns lookup failed")
 
         monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        # Skip the real retry backoff (1 s + 2 s).
+        monkeypatch.setattr(github.time, "sleep", lambda _s: None)
         result = github.search_repos("uart")
         assert isinstance(result, dict)
         assert "connection error" in result["error"]

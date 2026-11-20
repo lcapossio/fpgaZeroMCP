@@ -310,30 +310,49 @@ _UTIL_QUARTUS = [
 # Timing patterns
 # ---------------------------------------------------------------------------
 
+# Numbers are captured as \d+(?:\.\d*)? rather than [\d.]+ so a sentence-ending
+# period isn't swallowed (Vivado: "Timing Summary WNS=6.361. For the...").
 _RE_NEXTPNR_FMAX = re.compile(
-    r"Max frequency for clock\s+'?(\w+)'?[^:]*:\s*([\d.]+)\s*MHz(?:\s*\((\w+))?"
+    r"Max frequency for clock\s+'?(\w+)'?[^:]*:\s*(\d+(?:\.\d*)?|\.\d+)\s*MHz(?:\s*\((\w+))?"
 )
-_RE_CRITICAL_PATH = re.compile(r"Critical path[^:]*:\s*([\d.]+)\s*ns")
+_RE_CRITICAL_PATH = re.compile(r"Critical path[^:]*:\s*(\d+(?:\.\d*)?|\.\d+)\s*ns")
 _RE_VIVADO_FMAX = re.compile(
-    r"(?:Fmax|Maximum Frequency)\s*[;:=]\s*([\d.]+)\s*MHz", re.I
+    r"(?:Fmax|Maximum Frequency)\s*[;:=]\s*(\d+(?:\.\d*)?|\.\d+)\s*MHz", re.I
 )
-_RE_QUARTUS_FMAX = re.compile(r"Fmax\s*[;:]\s*([\d.]+)\s*MHz", re.I)
+_RE_QUARTUS_FMAX = re.compile(r"Fmax\s*[;:]\s*(\d+(?:\.\d*)?|\.\d+)\s*MHz", re.I)
 _RE_QUARTUS_RESTRICTED_FMAX = re.compile(
-    r"Restricted\s+Fmax\s*[;:]\s*([\d.]+)\s*MHz", re.I
+    r"Restricted\s+Fmax\s*[;:]\s*(\d+(?:\.\d*)?|\.\d+)\s*MHz", re.I
 )
 _RE_QUARTUS_SETUP_SLACK = re.compile(
-    r"(?:Worst.case )?[Ss]etup\s+slack\s*[;:]\s*(-?[\d.]+)", re.I
+    r"(?:Worst.case )?[Ss]etup\s+slack\s*[;:]\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", re.I
 )
 _RE_QUARTUS_HOLD_SLACK = re.compile(
-    r"(?:Worst.case )?[Hh]old\s+slack\s*[;:]\s*(-?[\d.]+)", re.I
+    r"(?:Worst.case )?[Hh]old\s+slack\s*[;:]\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", re.I
 )
 
 _SLACK_PATTERNS = [
-    ("wns_ns", re.compile(r"WNS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
-    ("tns_ns", re.compile(r"TNS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
-    ("whs_ns", re.compile(r"WHS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
-    ("ths_ns", re.compile(r"THS\s*[\(:=]\s*(-?[\d.]+)\s*(?:ns)?\b", re.I)),
-    ("wns_ns", re.compile(r"Slack\s+histogram.*?worst\s*=?\s*(-?[\d.]+)", re.I)),
+    (
+        "wns_ns",
+        re.compile(r"WNS\s*[\(:=]\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:ns)?\b", re.I),
+    ),
+    (
+        "tns_ns",
+        re.compile(r"TNS\s*[\(:=]\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:ns)?\b", re.I),
+    ),
+    (
+        "whs_ns",
+        re.compile(r"WHS\s*[\(:=]\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:ns)?\b", re.I),
+    ),
+    (
+        "ths_ns",
+        re.compile(r"THS\s*[\(:=]\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:ns)?\b", re.I),
+    ),
+    (
+        "wns_ns",
+        re.compile(
+            r"Slack\s+histogram.*?worst\s*=?\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", re.I
+        ),
+    ),
 ]
 
 _CONGESTION_PATTERNS = [
@@ -343,7 +362,10 @@ _CONGESTION_PATTERNS = [
     ("budget", re.compile(r"routing budget exceeded", re.I)),
     ("level", re.compile(r"Estimated.*congestion\s*[=:]\s*(\w+)", re.I)),
     ("unrouted_nets", re.compile(r"Routing problems[^:]*:\s*(\d+)", re.I)),
-    ("level", re.compile(r"Interconnect usage\s*[;:]\s*([\d.]+)\s*%", re.I)),
+    (
+        "level",
+        re.compile(r"Interconnect usage\s*[;:]\s*(\d+(?:\.\d*)?|\.\d+)\s*%", re.I),
+    ),
 ]
 
 # Progress estimation
@@ -407,35 +429,37 @@ class _Collector:
             return
         # Record line count for previous phase
         if self.phase_history:
-            prev_name, prev_start = self.phase_history[-1]
-            self.phase_history[-1] = (prev_name, line_no - prev_start)
+            prev_name, _ = self.phase_history[-1]
+            self.phase_history[-1] = (prev_name, line_no - self._phase_start_line)
         self.phase_history.append((prefixed, 0))
         self.phase = prefixed
         self._phase_start_line = line_no
 
-    def finalize(self, total_lines: int) -> None:
-        """Close out the last phase's line count."""
-        if self.phase_history:
-            prev_name, prev_start = self.phase_history[-1]
-            lines_in_phase = total_lines - self._phase_start_line
-            self.phase_history[-1] = (prev_name, lines_in_phase)
+
+# Pattern lists per detected tool, precomputed so the per-line processors
+# don't rebuild them for every line. "unknown" tries everything.
+_ALL_PHASES = [p for tool_phases in _PHASES.values() for p in tool_phases]
+_UTIL_BY_TOOL: dict[str, list[tuple[re.Pattern, str, int]]] = {
+    "nextpnr": _UTIL_NEXTPNR,
+    "vivado": _UTIL_VIVADO,
+    "quartus": _UTIL_QUARTUS,
+    "unknown": _UTIL_NEXTPNR + _UTIL_VIVADO + _UTIL_QUARTUS,
+}
 
 
 def _detect_tool(line: str, seen: set) -> str | None:
+    # Tools already seen are skipped: re-matching them can't change the
+    # outcome (the first detection already fixed the primary tool) and the
+    # signature searches run on every line of a long log.
     for tool, pat in _TOOL_SIGNATURES:
-        if pat.search(line):
+        if tool not in seen and pat.search(line):
             seen.add(tool)
             return tool
     return None
 
 
 def _process_phase(c: _Collector, line: str, line_no: int) -> None:
-    phases = _PHASES.get(c.tool, [])
-    # Also check all tools if tool is unknown
-    if c.tool == "unknown":
-        for tool_phases in _PHASES.values():
-            phases = phases + tool_phases
-
+    phases = _ALL_PHASES if c.tool == "unknown" else _PHASES.get(c.tool, [])
     for phase_name, pat in phases:
         if pat.search(line):
             c._set_phase(phase_name, line_no)
@@ -443,15 +467,7 @@ def _process_phase(c: _Collector, line: str, line_no: int) -> None:
 
 
 def _process_util(c: _Collector, line: str) -> None:
-    patterns: list[tuple[re.Pattern, str, int]] = []
-    if c.tool in ("nextpnr", "unknown"):
-        patterns += _UTIL_NEXTPNR
-    if c.tool in ("vivado", "unknown"):
-        patterns += _UTIL_VIVADO
-    if c.tool in ("quartus", "unknown"):
-        patterns += _UTIL_QUARTUS
-
-    for pat, label, ngroups in patterns:
+    for pat, label, ngroups in _UTIL_BY_TOOL.get(c.tool, ()):
         m = pat.search(line)
         if m:
             if ngroups == 3:
@@ -567,75 +583,115 @@ def _process_progress(c: _Collector, line: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+_METRIC_PROCESSORS = (
+    _process_util,
+    _process_timing,
+    _process_slack,
+    _process_congestion,
+    _process_errors_warnings,
+    _process_progress,
+)
+
+
+class BuildLogParser:
+    """Incremental build log parser.
+
+    feed() any number of chunks, each holding only complete lines; result()
+    may be called at any point and does not disturb the parser state. Feeding
+    a log in pieces gives the same result as parsing it in one go, so a build
+    monitor can parse each new stretch of a growing log exactly once instead
+    of re-reading the whole file on every status poll.
+    """
+
+    def __init__(self) -> None:
+        self._c = _Collector()
+        self._lines = 0
+
+    def feed(self, text: str) -> None:
+        """Parse a chunk of complete lines (a trailing partial line would be
+        parsed as if it were complete — callers must split on newlines)."""
+        c = self._c
+        for line in text.splitlines():
+            # Tool detection (first match sticks, but keep scanning for multi-tool flows)
+            detected = _detect_tool(line, c._tools_seen)
+            if detected and c.tool == "unknown":
+                c.tool = detected
+
+            _process_phase(c, line, self._lines)
+
+            # Metrics (only relevant patterns based on detected tool)
+            for process in _METRIC_PROCESSORS:
+                try:
+                    process(c, line)
+                except ValueError:
+                    # A number a pattern matched but float()/int() rejects
+                    # (odd tool output). Skip that metric for this line rather
+                    # than failing build_status for the rest of the build.
+                    pass
+            self._lines += 1
+
+    def result(self) -> dict:
+        """Structured results for everything fed so far."""
+        c = self._c
+
+        # Phase history as list of dicts with names and line counts; the
+        # current (last) phase runs to the end of what has been fed.
+        phase_names = [name for name, _ in c.phase_history]
+        phase_detail = [
+            {"phase": name, "lines": count} for name, count in c.phase_history
+        ]
+        if phase_detail:
+            phase_detail[-1]["lines"] = self._lines - c._phase_start_line
+
+        # Phase label
+        tool_labels = _PHASE_LABELS.get(c.tool, {})
+        # Strip tool prefix for label lookup
+        raw_phase = c.phase
+        if c.tool != "unknown" and raw_phase.startswith(c.tool + "_"):
+            raw_phase = raw_phase[len(c.tool) + 1 :]
+        label = tool_labels.get(raw_phase, c.phase)
+        if c.tool not in ("unknown",):
+            label = f"{c.tool.capitalize()}: {label}" if label != c.phase else c.phase
+
+        health = _assess_health(
+            c.phase, c.utilization, c.timing, c.slack, c.congestion, c.errors
+        )
+
+        # Copies: the collector keeps accumulating after this result is
+        # handed out, and callers are free to modify what they receive.
+        result: dict = {
+            "tool": c.tool,
+            "phase": c.phase,
+            "phase_label": label,
+            "phase_history": phase_names,
+            "phase_detail": phase_detail,
+            "utilization": {k: dict(v) for k, v in c.utilization.items()},
+            "health": health,
+        }
+        if c.timing:
+            result["timing"] = dict(c.timing)
+        if c.slack:
+            result["slack"] = dict(c.slack)
+        if c.congestion:
+            result["congestion"] = dict(c.congestion)
+        if c.progress:
+            result["progress"] = dict(c.progress)
+        if len(c._tools_seen) > 1:
+            result["tools_detected"] = sorted(c._tools_seen)
+        result["warnings"] = c.warnings
+        result["errors"] = c.errors
+
+        return result
+
+
 def parse_build_log(log_text: str) -> dict:
     """Parse a build log in a single pass and return structured results.
 
     Auto-detects the EDA tool and applies only relevant patterns.
     """
-    c = _Collector()
-    lines = log_text.splitlines()
-
-    for i, line in enumerate(lines):
-        # Tool detection (first match sticks, but keep scanning for multi-tool flows)
-        detected = _detect_tool(line, c._tools_seen)
-        if detected and c.tool == "unknown":
-            c.tool = detected
-
-        # Phase
-        _process_phase(c, line, i)
-
-        # Metrics (only relevant patterns based on detected tool)
-        _process_util(c, line)
-        _process_timing(c, line)
-        _process_slack(c, line)
-        _process_congestion(c, line)
-        _process_errors_warnings(c, line)
-        _process_progress(c, line)
-
-    c.finalize(len(lines))
-
-    # Build phase history as list of dicts with names and line counts
-    phase_names = [name for name, _ in c.phase_history]
-    phase_detail = [{"phase": name, "lines": count} for name, count in c.phase_history]
-
-    # Phase label
-    tool_labels = _PHASE_LABELS.get(c.tool, {})
-    # Strip tool prefix for label lookup
-    raw_phase = c.phase
-    if c.tool != "unknown" and raw_phase.startswith(c.tool + "_"):
-        raw_phase = raw_phase[len(c.tool) + 1 :]
-    label = tool_labels.get(raw_phase, c.phase)
-    if c.tool not in ("unknown",):
-        label = f"{c.tool.capitalize()}: {label}" if label != c.phase else c.phase
-
-    # Health
-    health = _assess_health(
-        c.phase, c.utilization, c.timing, c.slack, c.congestion, c.errors
-    )
-
-    result: dict = {
-        "tool": c.tool,
-        "phase": c.phase,
-        "phase_label": label,
-        "phase_history": phase_names,
-        "phase_detail": phase_detail,
-        "utilization": c.utilization,
-        "health": health,
-    }
-    if c.timing:
-        result["timing"] = c.timing
-    if c.slack:
-        result["slack"] = c.slack
-    if c.congestion:
-        result["congestion"] = c.congestion
-    if c.progress:
-        result["progress"] = c.progress
-    if len(c._tools_seen) > 1:
-        result["tools_detected"] = sorted(c._tools_seen)
-    result["warnings"] = c.warnings
-    result["errors"] = c.errors
-
-    return result
+    parser = BuildLogParser()
+    parser.feed(log_text)
+    return parser.result()
 
 
 # ---------------------------------------------------------------------------

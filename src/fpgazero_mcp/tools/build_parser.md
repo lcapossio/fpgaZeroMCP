@@ -101,6 +101,8 @@ Tool-specific patterns avoid false positives:
 
 The parser is used internally by `build_status` -- you don't call it directly via MCP. When you check a build's status, the `build_info` field contains the parsed results.
 
+`build_status` parses the log incrementally: each poll parses only the output written since the previous poll, so polling stays cheap however long the log grows, and warning/error counts cover the whole log. If a build is first polled after it has already written more than 8 MB, the parser reads the head of the log (for tool detection) and the most recent 8 MB, skipping the middle; `build_info.log_bytes_skipped` then reports how much was skipped, and the counts cover only what was parsed.
+
 ### Python
 
 ```python
@@ -122,4 +124,16 @@ print(result["errors"])        # 0
 # Check phase history with line counts
 for phase in result["phase_detail"]:
     print(f"  {phase['phase']}: {phase['lines']} lines")
+```
+
+For a log that is still growing, `BuildLogParser` parses it in pieces. Feed it complete lines only; the result is identical to parsing the whole text at once:
+
+```python
+from fpgazero_mcp.tools.build_parser import BuildLogParser
+
+parser = BuildLogParser()
+parser.feed(first_lines)
+print(parser.result()["phase"])
+parser.feed(more_lines)        # only the new output is parsed
+print(parser.result()["phase"])
 ```
