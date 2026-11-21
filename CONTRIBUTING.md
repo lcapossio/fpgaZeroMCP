@@ -88,7 +88,14 @@ tests/
   test_formal.py             Formal verification: sby log parsing + .sby generation
   test_timing_closure.py     Timing-closure sweep: attempt planning, best-of-N, reuse
   test_paths.py              Runtime state stays out of the installed package
+  test_real_logs.py          build_parser against real captured tool logs
+  fixtures/logs/             Real tool output (hostnames and paths scrubbed)
 ```
+
+When a parser misreads real tool output, add the log (or the relevant
+excerpt) to `tests/fixtures/logs/` with the tool version in the file name,
+and assert the values a person reading the log would expect. Replace user
+paths and hostnames before committing it.
 
 ### Adding a new synthesis target
 

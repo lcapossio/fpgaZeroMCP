@@ -74,38 +74,55 @@ _PHASES: dict[str, list[tuple[str, re.Pattern]]] = {
         ("timing", re.compile(r"Max frequency|Info: Max frequency")),
         ("bitstream", re.compile(r"Writing bitstream|icepack|ecppack")),
     ],
+    # Vivado phases follow the running *command*. Commands are matched only
+    # at the start of a line (the Tcl echo "# cmd", "Command: cmd", or a bare
+    # "cmd ..."), never mid-line: real logs mention other commands inside a
+    # step ("Multithreading enabled for place_design", "refer to the DRC
+    # report (report_drc)"). Numbered sub-phases are not used either:
+    # place_design prints "Phase 2.5.1 UpdateTiming Before Physical
+    # Synthesis" and "Phase 4 Post Placement Optimization", and route_design
+    # prints "Intermediate Timing Summary" lines, which made the reported
+    # phase thrash between synth/opt/place/timing within one command.
     "vivado": [
         (
             "synth",
             re.compile(
-                r"synth_design|Starting Synthesis|Phase \d+.*Synthesis|launch_runs.*synth",
+                r"^(?:# |Command: )?synth_design\b|^Starting Synthesis"
+                r"|launch_runs.*synth",
                 re.I,
             ),
         ),
-        ("phys_opt", re.compile(r"phys_opt_design|Physical Optimization", re.I)),
-        ("opt", re.compile(r"opt_design|Phase \d+.*Optimization", re.I)),
+        (
+            "phys_opt",
+            re.compile(
+                r"^(?:# |Command: )?phys_opt_design\b|^Starting Physical Optimization",
+                re.I,
+            ),
+        ),
+        ("opt", re.compile(r"^(?:# |Command: )?opt_design\b", re.I)),
         (
             "place",
-            re.compile(
-                r"place_design|Starting Placer|Phase \d+.*Placement|Placer Phase", re.I
-            ),
+            re.compile(r"^(?:# |Command: )?place_design\b|^Starting Placer", re.I),
         ),
         (
             "route",
-            re.compile(
-                r"route_design|Starting Router|Phase \d+.*Routing|Router Phase", re.I
-            ),
+            re.compile(r"^(?:# |Command: )?route_design\b|^Starting Rout", re.I),
         ),
         (
             "timing",
             re.compile(
-                r"report_timing_summary|Timing Summary|Design Timing Summary", re.I
+                r"^(?:# |Command: )?report_timing_summary\b|Design Timing Summary",
+                re.I,
             ),
         ),
-        ("drc", re.compile(r"report_drc|DRC Results", re.I)),
+        ("drc", re.compile(r"^(?:# |Command: )?report_drc\b|DRC Results", re.I)),
         (
             "write",
-            re.compile(r"write_bitstream|\.bit generation|Bitstream Generation", re.I),
+            re.compile(
+                r"^(?:# |Command: )?write_bitstream\b|\.bit generation"
+                r"|Bitstream Generation",
+                re.I,
+            ),
         ),
     ],
     "quartus": [

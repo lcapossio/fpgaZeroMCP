@@ -41,6 +41,16 @@ Each tool has its own phase sequence:
 
 Phases include line counts for duration estimation.
 
+Vivado phases follow the running command (`synth_design`, `opt_design`,
+`place_design`, ...), matched at the start of a line as the Tcl echo
+(`# place_design`), `Command: place_design`, or a bare command. Numbered
+sub-phases and mid-line mentions are ignored, because each command prints
+names that belong to other phases (`place_design` prints "Phase 2.5.1
+UpdateTiming Before Physical Synthesis"; `route_design` prints "Intermediate
+Timing Summary"). A full non-project flow therefore reports
+`synth, opt, place, route, timing`. Report output that isn't a phase
+(`report_utilization`) counts toward the preceding phase.
+
 ### Resource Utilization
 
 | Tool | Resources Parsed |
