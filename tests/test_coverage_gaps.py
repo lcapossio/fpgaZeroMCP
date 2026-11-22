@@ -39,7 +39,7 @@ def bit_path():
 
 class TestErrors:
     def test_err_basic(self) -> None:
-        from tools.errors import err, INVALID_INPUT
+        from fpgazero_mcp.tools.errors import err, INVALID_INPUT
 
         e = err(INVALID_INPUT, "bad input")
         assert e == {
@@ -49,7 +49,7 @@ class TestErrors:
         }
 
     def test_err_with_extra_fields(self) -> None:
-        from tools.errors import err, TIMEOUT
+        from fpgazero_mcp.tools.errors import err, TIMEOUT
 
         e = err(TIMEOUT, "timed out after 30s", timeout=30, command="yosys")
         assert e["success"] is False
@@ -58,7 +58,7 @@ class TestErrors:
         assert e["command"] == "yosys"
 
     def test_error_code_constants_are_strings(self) -> None:
-        from tools import errors
+        from fpgazero_mcp.tools import errors
 
         # Every public constant in the module should be a non-empty string
         public = [
@@ -87,7 +87,7 @@ class TestHealthcheck:
     def test_check_tools_none_installed(self, monkeypatch) -> None:
         import shutil
 
-        from tools import healthcheck
+        from fpgazero_mcp.tools import healthcheck
 
         # Pretend no binary is on PATH and no LiteX package either
         monkeypatch.setattr(shutil, "which", lambda _name: None)
@@ -106,7 +106,7 @@ class TestHealthcheck:
     def test_check_tools_some_installed(self, monkeypatch) -> None:
         import shutil
 
-        from tools import healthcheck
+        from fpgazero_mcp.tools import healthcheck
 
         installed = {"iverilog", "yosys"}
 
@@ -129,7 +129,7 @@ class TestHealthcheck:
             assert "v1.2.3" in t["version"]
 
     def test_get_version_falls_back_to_nonzero_exit(self, monkeypatch) -> None:
-        from tools import healthcheck
+        from fpgazero_mcp.tools import healthcheck
 
         # --version fails, -V succeeds — ensure we accept the fallback
         calls: list[str] = []
@@ -148,7 +148,7 @@ class TestHealthcheck:
         assert calls[0] == "--version"
 
     def test_get_version_returns_unknown_when_all_fail(self, monkeypatch) -> None:
-        from tools import healthcheck
+        from fpgazero_mcp.tools import healthcheck
 
         def fake_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise FileNotFoundError("not found")
@@ -164,7 +164,7 @@ class TestHealthcheck:
 
 class TestProgramFpga:
     def test_no_bitstream_returns_invalid_input(self) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         r = program_fpga(target="ice40")
         assert r["success"] is False
@@ -172,7 +172,7 @@ class TestProgramFpga:
         assert "bitstream_b64 or bitstream_path" in r["error"]
 
     def test_both_bitstreams_returns_invalid_input(self) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         r = program_fpga(
             target="ice40",
@@ -183,7 +183,7 @@ class TestProgramFpga:
         assert r["error_code"] == "invalid_input"
 
     def test_invalid_base64_returns_invalid_input(self) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         r = program_fpga(target="ice40", bitstream_b64="!!!not valid base64!!!")
         # Python's base64.b64decode is permissive; force a true error with non-ASCII
@@ -193,7 +193,7 @@ class TestProgramFpga:
         assert r["success"] is False
 
     def test_bitstream_path_missing(self) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         r = program_fpga(target="ice40", bitstream_path="/does/not/exist.bin")
         assert r["success"] is False
@@ -201,7 +201,7 @@ class TestProgramFpga:
         assert "not found" in r["error"]
 
     def test_tool_not_found(self, monkeypatch, bit_path) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         def fake_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise FileNotFoundError()
@@ -212,7 +212,7 @@ class TestProgramFpga:
         assert r["error_code"] == "tool_not_found"
 
     def test_timeout(self, monkeypatch, bit_path) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         def fake_run(*_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise subprocess.TimeoutExpired(cmd="iceprog", timeout=5)
@@ -223,7 +223,7 @@ class TestProgramFpga:
         assert r["error_code"] == "timeout"
 
     def test_success_iceprog(self, monkeypatch, bit_path) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         captured: list = []
 
@@ -239,7 +239,7 @@ class TestProgramFpga:
         assert captured[0][1] == bit_path
 
     def test_openFPGALoader_with_board(self, monkeypatch, bit_path) -> None:
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         captured: list = []
 
@@ -261,7 +261,7 @@ class TestProgramFpga:
     def test_bitstream_b64_written_and_cleaned_up(self, monkeypatch) -> None:
         import os
 
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         tmp_paths_used: list[str] = []
 
@@ -288,7 +288,7 @@ class TestProgramFpga:
 
 class TestMcpLite:
     def test_tool_to_dict(self) -> None:
-        from mcp_lite import Tool
+        from fpgazero_mcp.mcp_lite import Tool
 
         t = Tool(name="foo", description="does foo", inputSchema={"type": "object"})
         d = t.to_dict()
@@ -299,13 +299,13 @@ class TestMcpLite:
         }
 
     def test_text_content_to_dict(self) -> None:
-        from mcp_lite import TextContent
+        from fpgazero_mcp.mcp_lite import TextContent
 
         tc = TextContent(type="text", text="hello")
         assert tc.to_dict() == {"type": "text", "text": "hello"}
 
     def test_call_tool_result_to_dict(self) -> None:
-        from mcp_lite import CallToolResult, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, TextContent
 
         r = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
         d = r.to_dict()
@@ -313,7 +313,7 @@ class TestMcpLite:
         assert d["content"] == [{"type": "text", "text": "ok"}]
 
     def test_initialize_response(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test-srv", version="1.2.3")
         msg = {
@@ -330,7 +330,7 @@ class TestMcpLite:
         assert resp["result"]["protocolVersion"] == "2024-11-05"
 
     def test_initialized_notification_returns_none(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         msg = {"jsonrpc": "2.0", "method": "notifications/initialized"}
@@ -338,7 +338,7 @@ class TestMcpLite:
         assert resp is None
 
     def test_tools_list_empty_when_no_handler(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
@@ -347,7 +347,7 @@ class TestMcpLite:
         assert resp["result"] == {"tools": []}
 
     def test_tools_list_with_handler(self) -> None:
-        from mcp_lite import Server, Tool
+        from fpgazero_mcp.mcp_lite import Server, Tool
 
         srv = Server("test")
 
@@ -361,7 +361,7 @@ class TestMcpLite:
         assert resp["result"]["tools"][0]["name"] == "foo"
 
     def test_tools_call_with_handler(self) -> None:
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("test")
 
@@ -383,7 +383,7 @@ class TestMcpLite:
         assert resp["result"]["isError"] is False
 
     def test_unknown_method_returns_error(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         msg = {"jsonrpc": "2.0", "id": 99, "method": "foo/bar"}
@@ -393,7 +393,7 @@ class TestMcpLite:
         assert "Method not found" in resp["error"]["message"]
 
     def test_unknown_notification_returns_none(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         # No 'id' = notification
@@ -402,7 +402,7 @@ class TestMcpLite:
         assert resp is None
 
     def test_handler_exception_becomes_internal_error(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
 
@@ -422,7 +422,7 @@ class TestMcpLite:
         assert "boom" in resp["error"]["message"]
 
     def test_ping_and_shutdown_return_empty_result(self) -> None:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("test")
         for method in ("ping", "shutdown"):
@@ -441,7 +441,7 @@ class TestServerDispatch:
     """Ensure every case branch in server.handle_call_tool can be reached."""
 
     def _invoke(self, name: str, args: dict) -> dict:
-        import server
+        from fpgazero_mcp import server
 
         result = asyncio.run(server.handle_call_tool(name, args))
         # CallToolResult.content[0] is a TextContent; parse JSON from it.

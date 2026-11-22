@@ -14,10 +14,12 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 - **Multi-language**: Verilog, SystemVerilog, and VHDL (via ghdl-yosys-plugin)
 - **Three input modes**: inline `code` string, multi-file `files` dict, or `project_dir` path on disk
 - **Filelist support**: `files.f`/`sources.f` with `+incdir+`, `+define+`, and nested `-f` directives
-- **Board presets**: 11 built-in boards (iCEBreaker, ULX3S, TinyFPGA BX, Tang Nano, etc.) — sets target/device/package/clock automatically
-- **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst` in your project directory
+- **Board presets**: 15 built-in boards (iCEBreaker, ULX3S, TinyFPGA BX, Tang Nano, Arty A7, Basys3, etc.) — sets target/device/package/clock automatically
+- **Constraint auto-detection**: finds `.pcf`/`.lpf`/`.pdc`/`.cst`/`.xdc` in your project directory
 - **Bitstream programming**: flash via `iceprog` (iCE40) or `openFPGALoader` (ECP5/Gowin/Nexus/Xilinx)
-- **Vivado**: batch runs through `start_build`, Xilinx builds through LiteX, structured Vivado log parsing in `build_status`
+- **First-class Vivado flow**: `place_and_route` with `target="xilinx"` runs the full Vivado batch flow (auto-generated TCL: synth, place, route, `write_bitstream`) — no TCL knowledge needed; plus raw batch runs through `start_build`, Xilinx builds through LiteX, and structured Vivado log parsing in `build_status`
+- **Timing closure loop**: `close_timing` sweeps nextpnr placer seeds (synthesizing once and reusing the netlist) or Vivado strategy directives until the clock target is met, reporting every attempt and returning the best bitstream
+- **Formal verification**: `formal_verify` drives SymbiYosys — bounded model checking, unbounded k-induction proofs, and cover-reachability, returning the failing assertion and counterexample trace
 - **Simulation verdict parsing**: PASS/FAIL/UVM pattern detection with VCD signal summary
 - **Background builds**: long-running synthesis/PnR with status polling and a strict EDA-only command allowlist
 - **Concurrent requests**: ping, build status, and cancel are answered while a slow tool call is still running; `notifications/cancelled` aborts an in-flight call
@@ -53,7 +55,7 @@ Ask your AI to search for cores, pull them in, lint HDL, synthesize a multi-file
 ```
 Your AI assistant  <-->  fpgaZeroMCP (stdio MCP server)  <-->  OSS tools
                                     |
-                           cores/   registry on GitHub
+         src/fpgazero_mcp/cores/   registry on GitHub
                            (uart_tx, fifo + any imported)
 ```
 
@@ -66,7 +68,7 @@ The MCP server runs as a local subprocess. Your AI calls tools on it over JSON-R
 | Requirement | Notes |
 |---|---|
 | Python 3.11+ | |
-| [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) | Bundles iverilog, Yosys, nextpnr, Verilator, Verible, GHDL in one download |
+| [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build/releases) | Bundles iverilog, Yosys, nextpnr, Verilator, Verible, GHDL and SymbiYosys (`sby`) in one download |
 | [LiteX](https://github.com/enjoy-digital/litex) + [litex-boards](https://github.com/litex-hub/litex-boards) | Optional — only needed for LiteX tools |
 
 Add OSS CAD Suite to your `PATH` after installing. All tool wrappers degrade gracefully if a tool is missing.
@@ -107,9 +109,8 @@ Add to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "fpgaZeroMCP": {
-      "command": "python",
-      "args": ["/path/to/fpgaZeroMCP/server.py"],
-      "env": { "PYTHONPATH": "/path/to/fpgaZeroMCP" }
+      "command": "fpgazero-mcp",
+      "args": []
     }
   }
 }
@@ -124,9 +125,8 @@ Add to `.vscode/mcp.json` in your workspace:
   "servers": {
     "fpgaZeroMCP": {
       "type": "stdio",
-      "command": "python",
-      "args": ["/path/to/fpgaZeroMCP/server.py"],
-      "env": { "PYTHONPATH": "/path/to/fpgaZeroMCP" }
+      "command": "fpgazero-mcp",
+      "args": []
     }
   }
 }
@@ -139,12 +139,14 @@ Add to your MCP settings (Settings → MCP Servers):
 ```json
 {
   "fpgaZeroMCP": {
-    "command": "python",
-    "args": ["/path/to/fpgaZeroMCP/server.py"],
-    "env": { "PYTHONPATH": "/path/to/fpgaZeroMCP" }
+    "command": "fpgazero-mcp",
+    "args": []
   }
 }
 ```
+
+`fpgazero-mcp` is installed on your `PATH` by `pip install`. If your client cannot
+find it, use the module form instead: `"command": "python", "args": ["-m", "fpgazero_mcp.server"]`.
 
 ### Example prompts
 
@@ -176,9 +178,16 @@ Add to your MCP settings (Settings → MCP Servers):
 |---|---|
 | `simulate` | Compile and run testbenches — iverilog (V/SV) or GHDL (VHDL). Accepts `code`, `files`, or `project_dir`. Returns verdict + VCD summary |
 | `synthesize` | Yosys synthesis with resource stats. Accepts `code`, `files`, or `project_dir`. Verilog, SV, VHDL |
-| `place_and_route` | Yosys + nextpnr in one step. Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
+| `place_and_route` | Full RTL-to-bitstream: Yosys + nextpnr (open targets) or Vivado batch (`target="xilinx"`). Board presets, constraint auto-detection, bitstream written to disk (`bitstream_path`) |
 | `program_fpga` | Flash a bitstream via `iceprog` or `openFPGALoader` |
 | `list_boards` | Enumerate built-in board presets (target/device/package/clock) |
+| `close_timing` | Sweep place-and-route until a clock target is met: varies nextpnr placer seeds (one synthesis, reused) or Vivado strategy directives. Reports every attempt, says whether timing `closed`, and returns the best attempt's bitstream |
+
+### Verification
+
+| Tool | Description |
+|---|---|
+| `formal_verify` | Prove or refute assertions with SymbiYosys (`sby`). `mode="bmc"` bounded-checks to `depth`, `mode="prove"` attempts an unbounded k-induction proof, `mode="cover"` finds traces reaching `cover()` statements. Returns a PASS/FAIL/UNKNOWN verdict with the failing assertion and counterexample trace |
 
 ### IP core registry
 
@@ -220,7 +229,7 @@ Add to your MCP settings (Settings → MCP Servers):
 
 ## IP Core Registry
 
-Cores live in `cores/<name>/` — a `core.json` manifest and one or more HDL files. The server auto-discovers them on startup and reloads after any import.
+Cores live in `src/fpgazero_mcp/cores/<name>/` — a `core.json` manifest and one or more HDL files. The server auto-discovers them on startup and reloads after any import.
 
 Two reference cores are included (`uart_tx`, `fifo`) to demonstrate the format. **The registry is not meant to grow here** — it is powered by GitHub.
 
@@ -260,7 +269,7 @@ This keeps the server lean and lets the community grow organically on GitHub.
 | `ecp5` | Lattice ECP5 | yes — nextpnr-ecp5 |
 | `nexus` | Lattice Nexus (CrossLink-NX, CertusPro-NX) | yes — nextpnr-nexus |
 | `gowin` | Gowin | yes — nextpnr-gowin |
-| `xilinx` | Xilinx / AMD | Synth only |
+| `xilinx` | Xilinx / AMD | yes — Vivado batch flow (Vivado install required; Yosys for synth-only) |
 | `intel` | Intel / Altera | Synth only |
 | `generic` | Technology-independent | Netlist only |
 
@@ -272,6 +281,23 @@ Common device/package values for `place_and_route`:
 | ecp5 | `25k` `45k` `85k` | `CABGA256` `CABGA381` |
 | nexus | `LIFCL-40-9BG400C` | *(embedded in device string)* |
 | gowin | `GW1N-UV4LQ144C6/I5` | *(embedded in device string)* |
+| xilinx | `xc7a35tcpg236-1` *(full part number)* | *(embedded in device string)* |
+
+### Vivado flow (Xilinx)
+
+With `target="xilinx"` (or `backend="vivado"`), `place_and_route` generates a non-project batch TCL script and runs `vivado -mode batch` end to end — read sources, `synth_design`, `opt/place/route_design`, utilization and timing reports, `write_bitstream`. Constraints are XDC text (or auto-detected `.xdc` from `project_dir`); if the XDC has a `create_clock -period`, fmax is derived from WNS. Requires a local Vivado install on PATH.
+
+```python
+place_and_route(
+    project_dir="C:/work/my_design",   # or code= / files=
+    top_module="top",
+    board="basys3",                    # or device="xc7a35tcpg236-1"
+    timeout=1800,
+)
+# → bitstream_path (.bit), timing {wns_ns, max_freq_mhz, ...}, utilization, phases
+```
+
+For long Vivado runs, prefer `start_build` with the same flow to poll progress in the background — or pass a `progressToken` for `notifications/progress`.
 
 ---
 
@@ -319,7 +345,7 @@ $env:USERCORES_PATH = "C:\Users\you\my-cores;C:\Users\you\work-cores"
 }
 ```
 
-All paths are scanned on startup alongside the built-in `cores/` directory.
+All paths are scanned on startup alongside the built-in `src/fpgazero_mcp/cores/` directory and `$FPGAZERO_DATA_DIR/cores` (where `import_github_core` and `import_fusesoc_core` write). The bundled directory is treated as read-only — nothing is ever written back into the installed package.
 
 ### Allowed licenses
 
@@ -387,7 +413,7 @@ These are zero-code changes and fully transparent.
 | `USERCORES_PATH` | Extra core search directories (OS path separator delimited) |
 | `FPGAZERO_ALLOWED_LICENSES` | Comma-separated SPDX IDs for `import_github_core` (default: `MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,GPL-2.0,GPL-3.0,LGPL-2.1,LGPL-3.0`) |
 | `FPGAZERO_TMPDIR` | Override temporary workspace root directory |
-| `FPGAZERO_DATA_DIR` | Root for persistent server artifacts — build logs, LiteX output, temp workspaces (default: `<install dir>/no_commit`) |
+| `FPGAZERO_DATA_DIR` | Root for persistent server artifacts — build logs, bitstreams, LiteX output, imported cores, temp workspaces (default: `~/.fpgazero_mcp/work`) |
 | `FPGAZERO_ALLOWED_DIRS` | OS pathsep-separated list of extra directories that `project_dir` may read from and `start_build`/`place_and_route` may use as `work_dir` (in addition to cwd and `$HOME`) |
 
 ---
@@ -397,8 +423,8 @@ These are zero-code changes and fully transparent.
 The Python API can be used directly without an MCP client:
 
 ```python
-from registry.resolver import CoreRegistry
-from tools.lint import lint_hdl
+from fpgazero_mcp.registry.resolver import CoreRegistry
+from fpgazero_mcp.tools.lint import lint_hdl
 
 reg = CoreRegistry()
 

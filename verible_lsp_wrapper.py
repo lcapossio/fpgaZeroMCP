@@ -11,10 +11,10 @@ import json
 import sys
 from pathlib import Path
 
-# Add parent dir to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Run from a checkout without installing: the package lives under src/.
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from tools.lsp import format_hdl, get_diagnostics
+from fpgazero_mcp.tools.lsp import format_hdl, get_diagnostics
 
 
 async def handle_stdin():

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fpgazero-mcp"
-version = "0.6.0"
+dynamic = ["version"]
 description = "MCP server giving AI assistants a complete FPGA toolchain -- lint, simulate, synthesize, place-and-route, and a live IP core registry"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,28 +36,39 @@ Repository = "https://github.com/lcapossio/fpgaZeroMCP"
 Issues = "https://github.com/lcapossio/fpgaZeroMCP/issues"
 
 [project.scripts]
-fpgazero-mcp = "server:main"
+fpgazero-mcp = "fpgazero_mcp.server:main"
+
+# Single source of truth for the version: __version__ in the package, read
+# by hatch at build time (no importlib.metadata lookup at server start).
+[tool.hatch.version]
+path = "src/fpgazero_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["tools", "registry"]
+# Single top-level package. Nothing else is installed: `tools`, `registry`,
+# `server` and `cores` are far too generic to own in site-packages.
+packages = ["src/fpgazero_mcp"]
+# cores/ is a user-writable working directory in a dev checkout, so ship only
+# the two bundled demo cores rather than whatever happens to be on disk.
+exclude = ["**/__pycache__", "src/fpgazero_mcp/cores/**"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/fpgazero_mcp/cores/uart_tx" = "fpgazero_mcp/cores/uart_tx"
+"src/fpgazero_mcp/cores/fifo" = "fpgazero_mcp/cores/fifo"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "server.py",
-    "mcp_lite.py",
+    "src/fpgazero_mcp/",
+    "tests/",
     "example.py",
-    "tools/",
-    "registry/",
-    "cores/uart_tx/",
-    "cores/fifo/",
+    "verible_lsp_wrapper.py",
     "README.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     "pyproject.toml",
+    "pytest.ini",
 ]
+exclude = ["**/__pycache__", "src/fpgazero_mcp/cores/**"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"server.py" = "server.py"
-"mcp_lite.py" = "mcp_lite.py"
-"example.py" = "example.py"
-"cores/uart_tx" = "cores/uart_tx"
-"cores/fifo" = "cores/fifo"
+[tool.hatch.build.targets.sdist.force-include]
+"src/fpgazero_mcp/cores/uart_tx" = "src/fpgazero_mcp/cores/uart_tx"
+"src/fpgazero_mcp/cores/fifo" = "src/fpgazero_mcp/cores/fifo"

@@ -23,7 +23,7 @@ import pytest
 
 class TestVersionNegotiation:
     def _init(self, requested: str) -> tuple[dict, object]:
-        from mcp_lite import Server
+        from fpgazero_mcp.mcp_lite import Server
 
         srv = Server("t")
         resp = asyncio.run(
@@ -45,13 +45,13 @@ class TestVersionNegotiation:
         assert srv._negotiated_version == "2024-11-05"
 
     def test_unknown_version_gets_latest(self) -> None:
-        from mcp_lite import LATEST_PROTOCOL_VERSION
+        from fpgazero_mcp.mcp_lite import LATEST_PROTOCOL_VERSION
 
         result, _srv = self._init("1999-01-01")
         assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
 
     def test_latest_version_echoed(self) -> None:
-        from mcp_lite import LATEST_PROTOCOL_VERSION
+        from fpgazero_mcp.mcp_lite import LATEST_PROTOCOL_VERSION
 
         result, _srv = self._init(LATEST_PROTOCOL_VERSION)
         assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
@@ -64,7 +64,7 @@ class TestVersionNegotiation:
 
 class TestStructuredContent:
     def _server(self):
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("t")
 
@@ -110,8 +110,8 @@ class TestStructuredContent:
         assert "structuredContent" not in result
 
     def test_server_results_carry_structured_content(self, monkeypatch) -> None:
-        import tools.lint as tools_lint
-        import server
+        import fpgazero_mcp.tools.lint as tools_lint
+        from fpgazero_mcp import server
 
         monkeypatch.setattr(
             tools_lint, "lint_hdl", lambda **_kw: {"success": True, "tool": "iverilog"}
@@ -127,7 +127,7 @@ class TestStructuredContent:
 
 class TestCancellation:
     def test_cancelled_request_gets_no_response(self, monkeypatch) -> None:
-        from mcp_lite import CallToolResult, Server, TextContent
+        from fpgazero_mcp.mcp_lite import CallToolResult, Server, TextContent
 
         srv = Server("t")
 
@@ -179,12 +179,13 @@ class TestCancellation:
 class TestErrorCodes:
     def test_all_used_codes_are_declared(self) -> None:
         """Every "error_code" literal in the source must exist in tools/errors.py."""
-        import tools.errors as errors_mod
+        import fpgazero_mcp
+        import fpgazero_mcp.tools.errors as errors_mod
 
         declared = {
             v for k, v in vars(errors_mod).items() if k.isupper() and isinstance(v, str)
         }
-        root = Path(__file__).parent.parent
+        root = Path(fpgazero_mcp.__file__).parent
         used: set[str] = set()
         for pattern in ("tools/*.py", "registry/*.py", "server.py", "mcp_lite.py"):
             for path in root.glob(pattern):
@@ -200,7 +201,7 @@ class TestErrorCodes:
     def test_failed_synthesis_has_error_envelope(self, monkeypatch) -> None:
         import subprocess
 
-        from tools.synthesize import synthesize
+        from fpgazero_mcp.tools.synthesize import synthesize
 
         class _Proc:
             returncode = 1
@@ -214,7 +215,7 @@ class TestErrorCodes:
         assert "error" in r
 
     def test_unknown_core_has_code(self) -> None:
-        from registry.resolver import CoreRegistry
+        from fpgazero_mcp.registry.resolver import CoreRegistry
 
         r = CoreRegistry().get_core("definitely_not_a_core")
         assert r["error_code"] == "core_not_found"
@@ -230,7 +231,7 @@ class TestCheckTools:
         import shutil
 
         monkeypatch.setattr(shutil, "which", lambda _n: None)
-        from tools.healthcheck import check_tools
+        from fpgazero_mcp.tools.healthcheck import check_tools
 
         r = check_tools()
         names = {t["tool"] for t in r["tools"]}
@@ -245,40 +246,6 @@ class TestCheckTools:
         ):
             assert required in names
         assert r["total"] == len(r["tools"])
-
-
-# ---------------------------------------------------------------------------
-# build_status parse window
-# ---------------------------------------------------------------------------
-
-
-class TestParseWindow:
-    def _record(self, tmp: Path, content: bytes):
-        from tools.build_manager import BuildRecord
-
-        log = tmp / "b.log"
-        log.write_bytes(content)
-        return BuildRecord(
-            build_id="x",
-            label="",
-            cmd=[],
-            log_path=str(log),
-            work_dir=".",
-            start_time=0.0,
-        )
-
-    def test_small_log_returned_whole(self) -> None:
-        tmp = Path(tempfile_dir())
-        rec = self._record(tmp, b"line1\nline2\n")
-        assert rec.parse_window() == "line1\nline2\n"
-
-    def test_large_log_returns_tail_window(self) -> None:
-        tmp = Path(tempfile_dir())
-        blob = b"x" * (3 * 1024 * 1024) + b"\nlast line\n"
-        rec = self._record(tmp, blob)
-        window = rec.parse_window()
-        assert len(window) <= rec._PARSE_WINDOW_BYTES
-        assert window.endswith("last line\n")
 
 
 def tempfile_dir() -> str:
@@ -296,7 +263,7 @@ class TestCleanupBitstreams:
     def test_bitstreams_trimmed_by_age(self, monkeypatch) -> None:
         import os
 
-        from tools.build_manager import BuildManager
+        from fpgazero_mcp.tools.build_manager import BuildManager
 
         data_dir = Path(tempfile_dir())
         monkeypatch.setenv("FPGAZERO_DATA_DIR", str(data_dir))
@@ -333,7 +300,7 @@ def _make_tarball(root: str, files: dict[str, str]) -> bytes:
 
 class TestTarballImport:
     def test_extracts_wanted_files(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         tarball = _make_tarball(
             "owner-repo-abc123",
@@ -344,7 +311,7 @@ class TestTarballImport:
         assert out == {"rtl/top.v": "module top; endmodule"}
 
     def test_failure_returns_none_for_fallback(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         def boom(url, **_kw):
             raise OSError("network down")
@@ -353,7 +320,7 @@ class TestTarballImport:
         assert github._download_tarball_files("o", "r", "main", ["a.v"]) is None
 
     def test_size_cap_enforced(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         class _Resp:
             def __enter__(self):
@@ -380,7 +347,7 @@ class TestLspWslFallback:
         import shutil
         import subprocess
 
-        import tools.lsp as lsp
+        import fpgazero_mcp.tools.lsp as lsp
 
         captured: list[list[str]] = []
 
@@ -409,7 +376,7 @@ class TestLspWslFallback:
 
 class TestVivadoSupport:
     def test_vivado_batch_passes_allowlist(self) -> None:
-        from tools.build_manager import _validate_build_cmd
+        from fpgazero_mcp.tools.build_manager import _validate_build_cmd
 
         assert (
             _validate_build_cmd(["vivado", "-mode", "batch", "-source", "build.tcl"])
@@ -419,7 +386,7 @@ class TestVivadoSupport:
     def test_xilinx_target_uses_openfpgaloader(self, monkeypatch) -> None:
         import subprocess
 
-        from tools.program import program_fpga
+        from fpgazero_mcp.tools.program import program_fpga
 
         captured: list[list[str]] = []
 

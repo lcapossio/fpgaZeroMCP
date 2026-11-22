@@ -64,7 +64,7 @@ def _stub_run_raises(monkeypatch, exc: BaseException):
 
 class TestLspDiagnostics:
     def test_verilator_success(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         _stub_run(monkeypatch, returncode=0, stdout="", stderr="")
         r = get_diagnostics("module top; endmodule", language="verilog")
@@ -73,7 +73,7 @@ class TestLspDiagnostics:
         assert r["diagnostics"] == []
 
     def test_verilator_parses_error_and_warning(self, monkeypatch) -> None:
-        from tools.lsp import _parse_verilator
+        from fpgazero_mcp.tools.lsp import _parse_verilator
 
         # Build a realistic Verilator output snippet
         fname = "/tmp/x.v"
@@ -93,7 +93,7 @@ class TestLspDiagnostics:
         assert diags[1]["col"] == 1
 
     def test_verilator_systemverilog_flag(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         captured: list[list[str]] = []
 
@@ -108,7 +108,7 @@ class TestLspDiagnostics:
         assert "-g2012" not in captured[0]
 
     def test_verilator_missing_falls_back_to_verible(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         calls: list[str] = []
 
@@ -119,7 +119,7 @@ class TestLspDiagnostics:
             return _FakeProc(returncode=0)
 
         # No WSL fallback either — force the verible path
-        monkeypatch.setattr("tools.lsp._wsl_has_verilator", lambda: False)
+        monkeypatch.setattr("fpgazero_mcp.tools.lsp._wsl_has_verilator", lambda: False)
         monkeypatch.setattr(subprocess, "run", fake_run)
         r = get_diagnostics("module top; endmodule", language="verilog")
         # We should have tried verilator first, then verible-verilog-lint
@@ -127,7 +127,7 @@ class TestLspDiagnostics:
         assert r["tool"] == "verible-verilog-lint"
 
     def test_verilator_timeout(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         _stub_run_raises(
             monkeypatch, subprocess.TimeoutExpired(cmd="verilator", timeout=30)
@@ -138,7 +138,7 @@ class TestLspDiagnostics:
         assert "error" in r or r.get("success") is False
 
     def test_both_missing_returns_error(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = get_diagnostics("module top; endmodule", language="verilog")
@@ -146,7 +146,7 @@ class TestLspDiagnostics:
         assert "not found" in r["error"]
 
     def test_ghdl_for_vhdl(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         captured: list[list[str]] = []
 
@@ -160,7 +160,7 @@ class TestLspDiagnostics:
         assert r["tool"] == "ghdl"
 
     def test_ghdl_parse_errors(self) -> None:
-        from tools.lsp import _parse_ghdl
+        from fpgazero_mcp.tools.lsp import _parse_ghdl
 
         fname = "/tmp/x.vhd"
         output = (
@@ -172,7 +172,7 @@ class TestLspDiagnostics:
         assert diags[1]["severity"] == "warning"
 
     def test_ghdl_missing(self, monkeypatch) -> None:
-        from tools.lsp import get_diagnostics
+        from fpgazero_mcp.tools.lsp import get_diagnostics
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = get_diagnostics("entity e is end;", language="vhdl")
@@ -180,7 +180,7 @@ class TestLspDiagnostics:
         assert "ghdl" in r["error"]
 
     def test_verible_parse_with_rule(self) -> None:
-        from tools.lsp import _parse_verible
+        from fpgazero_mcp.tools.lsp import _parse_verible
 
         fname = "/tmp/x.v"
         output = f"{fname}:12:3: line too long [line-length]\n"
@@ -193,7 +193,7 @@ class TestLspDiagnostics:
 
 class TestLspFormat:
     def test_verible_format_success(self, monkeypatch) -> None:
-        from tools.lsp import format_hdl
+        from fpgazero_mcp.tools.lsp import format_hdl
 
         _stub_run(monkeypatch, returncode=0, stdout="module top;\nendmodule\n")
         r = format_hdl("module top;endmodule", language="verilog")
@@ -202,7 +202,7 @@ class TestLspFormat:
         assert r["changed"] is True
 
     def test_verible_format_unchanged(self, monkeypatch) -> None:
-        from tools.lsp import format_hdl
+        from fpgazero_mcp.tools.lsp import format_hdl
 
         original = "module top;\nendmodule\n"
         _stub_run(monkeypatch, returncode=0, stdout=original)
@@ -211,7 +211,7 @@ class TestLspFormat:
         assert r["changed"] is False
 
     def test_verible_format_failure(self, monkeypatch) -> None:
-        from tools.lsp import format_hdl
+        from fpgazero_mcp.tools.lsp import format_hdl
 
         _stub_run(monkeypatch, returncode=1, stderr="parse error")
         r = format_hdl("module", language="verilog")
@@ -219,14 +219,14 @@ class TestLspFormat:
         assert r["stderr"] == "parse error"
 
     def test_verible_format_missing(self, monkeypatch) -> None:
-        from tools.lsp import format_hdl
+        from fpgazero_mcp.tools.lsp import format_hdl
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = format_hdl("module top; endmodule", language="verilog")
         assert "error" in r
 
     def test_verible_format_timeout(self, monkeypatch) -> None:
-        from tools.lsp import format_hdl
+        from fpgazero_mcp.tools.lsp import format_hdl
 
         _stub_run_raises(
             monkeypatch,
@@ -237,7 +237,7 @@ class TestLspFormat:
         assert "timed out" in r["error"]
 
     def test_vsg_format_missing(self, monkeypatch) -> None:
-        from tools.lsp import format_hdl
+        from fpgazero_mcp.tools.lsp import format_hdl
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = format_hdl("entity e is end;", language="vhdl")
@@ -252,7 +252,7 @@ class TestLspFormat:
 
 class TestLintHdlMocked:
     def test_verilog_success(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         _stub_run(monkeypatch, returncode=0)
         r = lint_hdl("module top; endmodule", language="verilog")
@@ -261,7 +261,7 @@ class TestLintHdlMocked:
         assert r["message"] == "No errors found."
 
     def test_verilog_lint_failure(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         _stub_run(monkeypatch, returncode=1, stderr="syntax error")
         r = lint_hdl("module top endmodule", language="verilog")
@@ -270,7 +270,7 @@ class TestLintHdlMocked:
         assert "message" not in r
 
     def test_systemverilog_adds_g2012(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         captured: list[list[str]] = []
 
@@ -283,7 +283,7 @@ class TestLintHdlMocked:
         assert "-g2012" in captured[0]
 
     def test_vhdl_uses_ghdl(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         captured: list[list[str]] = []
 
@@ -296,7 +296,7 @@ class TestLintHdlMocked:
         assert captured[0][0] == "ghdl"
 
     def test_iverilog_missing(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = lint_hdl("module top; endmodule", language="verilog")
@@ -306,25 +306,25 @@ class TestLintHdlMocked:
     def test_verilator_missing_reports_verilator(self, monkeypatch) -> None:
         import shutil
 
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         # Force the verilator branch
         monkeypatch.setattr(shutil, "which", lambda _name: None)
         # Also force _wsl_has_verilator to False
-        monkeypatch.setattr("tools.lint._wsl_has_verilator", lambda: False)
+        monkeypatch.setattr("fpgazero_mcp.tools.lint._wsl_has_verilator", lambda: False)
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = lint_hdl("module top; endmodule", language="verilog", linter="verilator")
         assert "verilator" in r["error"]
 
     def test_ghdl_missing(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = lint_hdl("entity e is end;", language="vhdl")
         assert "ghdl" in r["error"]
 
     def test_timeout(self, monkeypatch) -> None:
-        from tools.lint import lint_hdl
+        from fpgazero_mcp.tools.lint import lint_hdl
 
         _stub_run_raises(
             monkeypatch, subprocess.TimeoutExpired(cmd="iverilog", timeout=30)
@@ -336,7 +336,7 @@ class TestLintHdlMocked:
 
 class TestLintProjectMocked:
     def test_project_success(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         _stub_run(monkeypatch, returncode=0)
         r = lint_project(
@@ -348,7 +348,7 @@ class TestLintProjectMocked:
         assert set(r["files"]) == {"a.v", "b.v"}
 
     def test_project_iverilog_adds_top(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         captured: list[list[str]] = []
 
@@ -364,7 +364,7 @@ class TestLintProjectMocked:
         assert captured[0][idx + 1] == "a"
 
     def test_project_systemverilog_adds_top(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         captured: list[list[str]] = []
 
@@ -382,7 +382,7 @@ class TestLintProjectMocked:
         assert "-g2012" in captured[0]
 
     def test_project_vhdl(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         captured: list[list[str]] = []
 
@@ -395,14 +395,14 @@ class TestLintProjectMocked:
         assert captured[0][0] == "ghdl"
 
     def test_project_tool_missing(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = lint_project(files={"a.v": "module a; endmodule"})
         assert r["success"] is False
 
     def test_project_timeout(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         _stub_run_raises(
             monkeypatch, subprocess.TimeoutExpired(cmd="iverilog", timeout=60)
@@ -412,7 +412,7 @@ class TestLintProjectMocked:
         assert "timed out" in r["error"]
 
     def test_project_auto_appends_extension(self, monkeypatch) -> None:
-        from tools.lint import lint_project
+        from fpgazero_mcp.tools.lint import lint_project
 
         captured: list[list[str]] = []
 
@@ -435,7 +435,7 @@ class TestLintProjectMocked:
 
 class TestLitexMocked:
     def test_litex_build_runs(self, monkeypatch) -> None:
-        from tools.litex import litex_build
+        from fpgazero_mcp.tools.litex import litex_build
 
         captured: list[list[str]] = []
 
@@ -453,7 +453,7 @@ class TestLitexMocked:
         assert "output_dir" in r
 
     def test_litex_build_respects_existing_build_arg(self, monkeypatch) -> None:
-        from tools.litex import litex_build
+        from fpgazero_mcp.tools.litex import litex_build
 
         captured: list[list[str]] = []
 
@@ -467,7 +467,7 @@ class TestLitexMocked:
         assert captured[0].count("--build") == 1
 
     def test_litex_soc_strips_build(self, monkeypatch) -> None:
-        from tools.litex import litex_soc
+        from fpgazero_mcp.tools.litex import litex_soc
 
         captured: list[list[str]] = []
 
@@ -482,7 +482,7 @@ class TestLitexMocked:
         assert "--no-compile" in captured[0]
 
     def test_litex_flow_passthrough(self, monkeypatch) -> None:
-        from tools.litex import litex_flow
+        from fpgazero_mcp.tools.litex import litex_flow
 
         captured: list[list[str]] = []
 
@@ -496,7 +496,7 @@ class TestLitexMocked:
         assert "--bar=1" in captured[0]
 
     def test_litex_not_found(self, monkeypatch) -> None:
-        from tools.litex import litex_build
+        from fpgazero_mcp.tools.litex import litex_build
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = litex_build(board="arty")
@@ -504,7 +504,7 @@ class TestLitexMocked:
         assert "not found" in r["error"]
 
     def test_litex_timeout(self, monkeypatch) -> None:
-        from tools.litex import litex_flow
+        from fpgazero_mcp.tools.litex import litex_flow
 
         _stub_run_raises(
             monkeypatch, subprocess.TimeoutExpired(cmd="litex", timeout=600)
@@ -514,7 +514,7 @@ class TestLitexMocked:
         assert "timed out" in r["error"]
 
     def test_litex_build_failure_propagates_returncode(self, monkeypatch) -> None:
-        from tools.litex import litex_build
+        from fpgazero_mcp.tools.litex import litex_build
 
         _stub_run(monkeypatch, returncode=2, stderr="build failed")
         r = litex_build(board="arty")
@@ -522,7 +522,7 @@ class TestLitexMocked:
         assert "build failed" in r["stderr"]
 
     def test_litex_custom_output_dir(self, monkeypatch, scratch_dir) -> None:
-        from tools.litex import litex_build
+        from fpgazero_mcp.tools.litex import litex_build
 
         _stub_run(monkeypatch, returncode=0)
         custom = os.path.join(scratch_dir, "mybuild")
@@ -537,7 +537,7 @@ class TestLitexMocked:
 
 class TestSimulateMocked:
     def test_verilog_compile_failure(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         _stub_run(monkeypatch, returncode=1, stderr="compile error")
         r = simulate("module top; endmodule", "module tb; endmodule")
@@ -545,7 +545,7 @@ class TestSimulateMocked:
         assert r["stage"] == "compile"
 
     def test_verilog_run_success_with_pass_verdict(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         calls: list[list[str]] = []
 
@@ -563,7 +563,7 @@ class TestSimulateMocked:
         assert r["verdict"]["verdict"] == "pass"
 
     def test_verilog_iverilog_missing(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = simulate("module top; endmodule", "module tb; endmodule")
@@ -571,7 +571,7 @@ class TestSimulateMocked:
         assert "iverilog" in r["error"]
 
     def test_verilog_timeout(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         _stub_run_raises(monkeypatch, subprocess.TimeoutExpired(cmd="vvp", timeout=60))
         r = simulate("module top; endmodule", "module tb; endmodule", timeout=60)
@@ -579,14 +579,14 @@ class TestSimulateMocked:
         assert "timed out" in r["error"]
 
     def test_vhdl_no_entity_in_testbench(self) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         r = simulate("entity e is end;", "-- no entity here", language="vhdl")
         assert r["success"] is False
         assert r["stage"] == "elaborate"
 
     def test_vhdl_analyze_design_fail(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         _stub_run(monkeypatch, returncode=1, stderr="bad vhdl")
         r = simulate(
@@ -598,7 +598,7 @@ class TestSimulateMocked:
         assert r["stage"] == "analyze_design"
 
     def test_vhdl_analyze_testbench_fail(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         calls: list[int] = []
 
@@ -619,7 +619,7 @@ class TestSimulateMocked:
         assert r["stage"] == "analyze_testbench"
 
     def test_vhdl_elaborate_fail(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         calls: list[int] = []
 
@@ -640,7 +640,7 @@ class TestSimulateMocked:
         assert r["stage"] == "elaborate"
 
     def test_vhdl_run_success(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         _stub_run(monkeypatch, returncode=0, stdout="All tests passed\n")
         r = simulate(
@@ -653,7 +653,7 @@ class TestSimulateMocked:
         assert r["verdict"]["verdict"] == "pass"
 
     def test_vhdl_ghdl_missing(self, monkeypatch) -> None:
-        from tools.simulate import simulate
+        from fpgazero_mcp.tools.simulate import simulate
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = simulate(
@@ -714,7 +714,7 @@ class TestPnrMocked:
         return captured
 
     def test_pnr_full_pipeline_ice40(self, monkeypatch, scratch_dir) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         monkeypatch.setenv("FPGAZERO_DATA_DIR", scratch_dir)
         self._setup_successful_run(monkeypatch)
@@ -736,7 +736,7 @@ class TestPnrMocked:
     def test_pnr_bitstream_b64_opt_in(self, monkeypatch, scratch_dir) -> None:
         import base64
 
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         monkeypatch.setenv("FPGAZERO_DATA_DIR", scratch_dir)
         self._setup_successful_run(monkeypatch)
@@ -752,7 +752,7 @@ class TestPnrMocked:
         assert base64.b64decode(r["bitstream_b64"]) == b"\xde\xad\xbe\xef"
 
     def test_pnr_board_preset_resolves(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         self._setup_successful_run(monkeypatch)
         r = place_and_route(
@@ -765,7 +765,7 @@ class TestPnrMocked:
         assert r["device"] == "up5k"
 
     def test_pnr_yosys_missing(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         _stub_run_raises(monkeypatch, FileNotFoundError())
         r = place_and_route(
@@ -778,7 +778,7 @@ class TestPnrMocked:
         assert "yosys" in r["error"]
 
     def test_pnr_synth_timeout(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         _stub_run_raises(
             monkeypatch, subprocess.TimeoutExpired(cmd="yosys", timeout=30)
@@ -793,7 +793,7 @@ class TestPnrMocked:
         assert "timed out" in r["error"]
 
     def test_pnr_synth_failure(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         _stub_run(monkeypatch, returncode=1, stderr="synth failed")
         r = place_and_route(
@@ -807,7 +807,7 @@ class TestPnrMocked:
 
     def test_pnr_no_netlist_produced(self, monkeypatch) -> None:
         """Synth reports success but no netlist.json appears — treat as failure."""
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         # yosys returns 0 but never writes the netlist file
         _stub_run(monkeypatch, returncode=0, stdout="yosys done")
@@ -821,7 +821,7 @@ class TestPnrMocked:
         assert r.get("stage") == "synthesis"
 
     def test_pnr_with_nextpnr_args(self, monkeypatch) -> None:
-        from tools.pnr import place_and_route
+        from fpgazero_mcp.tools.pnr import place_and_route
 
         captured = self._setup_successful_run(monkeypatch)
         r = place_and_route(
@@ -862,7 +862,7 @@ class _FakeUrlopen:
 
 class TestGithubMocked:
     def test_search_repos_happy_path(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         fake_json = {
             "items": [
@@ -892,7 +892,7 @@ class TestGithubMocked:
     def test_search_repos_http_error(self, monkeypatch) -> None:
         import urllib.error
 
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         def fake_urlopen(_req, timeout=None):  # type: ignore[no-untyped-def]
             raise urllib.error.HTTPError(
@@ -913,19 +913,21 @@ class TestGithubMocked:
     def test_search_repos_transport_error(self, monkeypatch) -> None:
         import urllib.error
 
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         def fake_urlopen(_req, timeout=None):  # type: ignore[no-untyped-def]
             raise urllib.error.URLError("dns lookup failed")
 
         monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        # Skip the real retry backoff (1 s + 2 s).
+        monkeypatch.setattr(github.time, "sleep", lambda _s: None)
         result = github.search_repos("uart")
         assert isinstance(result, dict)
         assert "connection error" in result["error"]
         assert result["error_code"] == "network_error"
 
     def test_get_dict_rejects_list_response(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         def fake_urlopen(_req, timeout=None):  # type: ignore[no-untyped-def]
             return _FakeUrlopen(b"[1,2,3]")
@@ -941,7 +943,7 @@ class TestGithubMocked:
     def test_request_retries_on_transient_status(self, monkeypatch) -> None:
         import urllib.error
 
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         # Count how many times urlopen is called
         calls: list[int] = []
@@ -968,7 +970,7 @@ class TestGithubMocked:
         assert len(calls) == 2
 
     def test_request_url_params_encoded(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         captured: list[str] = []
 
@@ -982,13 +984,13 @@ class TestGithubMocked:
         assert "n=10" in captured[0]
 
     def test_import_core_bad_repo_format(self) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
 
         r = github.import_core("not-a-valid-repo")
         assert "error" in r
 
     def test_import_core_license_rejected(self, monkeypatch) -> None:
-        from registry import github
+        from fpgazero_mcp.registry import github
         import json as _json
 
         # Meta response reports a disallowed license

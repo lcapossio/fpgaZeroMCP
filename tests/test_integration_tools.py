@@ -8,11 +8,11 @@ from uuid import uuid4
 
 import pytest
 
-from tools.lint import lint_hdl, lint_project
-from tools.lsp import get_diagnostics, format_hdl
-from tools.simulate import simulate
-from tools.synthesize import synthesize
-from tools.pnr import place_and_route
+from fpgazero_mcp.tools.lint import lint_hdl, lint_project
+from fpgazero_mcp.tools.lsp import get_diagnostics, format_hdl
+from fpgazero_mcp.tools.simulate import simulate
+from fpgazero_mcp.tools.synthesize import synthesize
+from fpgazero_mcp.tools.pnr import place_and_route
 
 
 def _mk_tmp_dir() -> Path:
@@ -174,6 +174,7 @@ def test_place_and_route_ice40() -> None:
         timeout=30,
     )
     assert result.get("stage") == "place_and_route"
+    assert result["success"] is True, result.get("pnr_stderr") or result.get("error")
 
 
 @pytest.mark.integration

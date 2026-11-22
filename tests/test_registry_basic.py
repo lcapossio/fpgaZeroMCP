@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-from registry.resolver import CoreRegistry
+from fpgazero_mcp.registry.resolver import CoreRegistry
 
 
 def _write_core(tmp_path: Path) -> None:

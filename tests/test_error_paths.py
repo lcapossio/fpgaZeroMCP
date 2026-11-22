@@ -13,30 +13,30 @@ from uuid import uuid4
 
 import pytest
 
-from registry.resolver import CoreRegistry
-from tools.synthesize import (
-    synthesize,
+from fpgazero_mcp.registry.resolver import CoreRegistry
+from fpgazero_mcp.tools.sources import (
+    parse_filelist,
+    resolve_sources,
     validate_top_module,
-    _resolve_sources,
-    _yosys_read_cmds,
-    _parse_filelist,
+    yosys_read_cmds,
 )
-from tools.pnr import place_and_route, _find_constraints
-from tools.simulate import simulate, _parse_verdict, _summarize_vcd
-from tools.lint import lint_hdl, lint_project
-from tools.boards import get_board_preset, list_boards
-from tools.build_manager import BuildManager
-from tools.build_parser import parse_build_log
-from registry.fusesoc import (
+from fpgazero_mcp.tools.synthesize import synthesize
+from fpgazero_mcp.tools.pnr import place_and_route, _find_constraints
+from fpgazero_mcp.tools.simulate import simulate, _parse_verdict, _summarize_vcd
+from fpgazero_mcp.tools.lint import lint_hdl, lint_project
+from fpgazero_mcp.tools.boards import get_board_preset, list_boards
+from fpgazero_mcp.tools.build_manager import BuildManager
+from fpgazero_mcp.tools.build_parser import parse_build_log
+from fpgazero_mcp.registry.fusesoc import (
     capi2_to_manifest_dict,
     _parse_name,
     _collect_hdl_files,
     _collect_parameters,
 )
-import registry.github as gh
-from tools.litex import _build_litex_cmd
-from tools.simulate import _find_vhdl_entity
-from server import _clamp_timeout
+import fpgazero_mcp.registry.github as gh
+from fpgazero_mcp.tools.litex import _build_litex_cmd
+from fpgazero_mcp.tools.simulate import _find_vhdl_entity
+from fpgazero_mcp.server import _clamp_timeout
 
 
 # ---------------------------------------------------------------------------
@@ -98,31 +98,31 @@ class TestSynthesizeErrors:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_sources validation
+# resolve_sources validation
 # ---------------------------------------------------------------------------
 
 
 class TestResolveSources:
     def test_no_input_returns_error(self) -> None:
-        paths, err = _resolve_sources()
+        paths, err = resolve_sources()
         assert err is not None
         assert "Provide one of" in err
 
     def test_multiple_inputs_returns_error(self) -> None:
-        paths, err = _resolve_sources(code="module m; endmodule", files={"a.v": "x"})
+        paths, err = resolve_sources(code="module m; endmodule", files={"a.v": "x"})
         assert err is not None
         assert "only one" in err.lower()
 
     def test_code_writes_file(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(code="module m; endmodule", tmpdir=tmpdir)
+        paths, err = resolve_sources(code="module m; endmodule", tmpdir=tmpdir)
         assert err is None
         assert len(paths) == 1
         assert paths[0].endswith(".v")
 
     def test_code_sv_extension(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(
+        paths, err = resolve_sources(
             code="module m; endmodule", language="systemverilog", tmpdir=tmpdir
         )
         assert err is None
@@ -130,7 +130,7 @@ class TestResolveSources:
 
     def test_code_vhdl_extension(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(
+        paths, err = resolve_sources(
             code="entity e is end;", language="vhdl", tmpdir=tmpdir
         )
         assert err is None
@@ -138,7 +138,7 @@ class TestResolveSources:
 
     def test_files_dict(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(
+        paths, err = resolve_sources(
             files={"top.v": "module top; endmodule", "sub.v": "module sub; endmodule"},
             tmpdir=tmpdir,
         )
@@ -146,13 +146,13 @@ class TestResolveSources:
         assert len(paths) == 2
 
     def test_project_dir_nonexistent(self) -> None:
-        paths, err = _resolve_sources(project_dir="/nonexistent/path/xyz")
+        paths, err = resolve_sources(project_dir="/nonexistent/path/xyz")
         assert err is not None
         assert "does not exist" in err or "outside allowed" in err.lower()
 
     def test_project_dir_no_files(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(project_dir=tmpdir, language="verilog")
+        paths, err = resolve_sources(project_dir=tmpdir, language="verilog")
         assert err is not None
         assert "No verilog files" in err
 
@@ -160,13 +160,13 @@ class TestResolveSources:
         tmpdir = _mk_tmp_dir()
         (tmpdir / "top.v").write_text("module top; endmodule", encoding="utf-8")
         (tmpdir / "sub.v").write_text("module sub; endmodule", encoding="utf-8")
-        paths, err = _resolve_sources(project_dir=str(tmpdir), language="verilog")
+        paths, err = resolve_sources(project_dir=str(tmpdir), language="verilog")
         assert err is None
         assert len(paths) == 2
 
     def test_project_dir_outside_allowed_roots_rejected(self) -> None:
         # A path that's outside cwd, home, and any FPGAZERO_ALLOWED_DIRS
-        paths, err = _resolve_sources(
+        paths, err = resolve_sources(
             project_dir="/nonexistent/outside/root", language="verilog"
         )
         assert err is not None
@@ -174,13 +174,13 @@ class TestResolveSources:
 
     def test_files_dict_traversal_rejected(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(files={"../../etc/crontab.v": "x"}, tmpdir=tmpdir)
+        paths, err = resolve_sources(files={"../../etc/crontab.v": "x"}, tmpdir=tmpdir)
         assert err is not None
         assert "Unsafe" in err or "traversal" in err.lower()
 
     def test_files_dict_absolute_path_rejected(self) -> None:
         tmpdir = str(_mk_tmp_dir())
-        paths, err = _resolve_sources(files={"/etc/passwd.v": "x"}, tmpdir=tmpdir)
+        paths, err = resolve_sources(files={"/etc/passwd.v": "x"}, tmpdir=tmpdir)
         assert err is not None
         assert "Unsafe" in err
 
@@ -189,7 +189,7 @@ class TestResolveSources:
         tmpdir = _mk_tmp_dir()
         (tmpdir / "design.sv").write_text("module top; endmodule", encoding="utf-8")
         (tmpdir / "legacy.v").write_text("module old; endmodule", encoding="utf-8")
-        paths, err = _resolve_sources(project_dir=str(tmpdir), language="systemverilog")
+        paths, err = resolve_sources(project_dir=str(tmpdir), language="systemverilog")
         assert err is None
         assert len(paths) == 1
         assert paths[0].endswith(".sv")
@@ -197,24 +197,24 @@ class TestResolveSources:
 
 class TestYosysReadCmds:
     def test_verilog_single_file(self) -> None:
-        result = _yosys_read_cmds(["/tmp/design.v"], "verilog")
+        result = yosys_read_cmds(["/tmp/design.v"], "verilog")
         assert result.strip() == "read_verilog /tmp/design.v"
 
     def test_verilog_multi_file(self) -> None:
-        result = _yosys_read_cmds(["/tmp/a.v", "/tmp/b.v"], "verilog")
+        result = yosys_read_cmds(["/tmp/a.v", "/tmp/b.v"], "verilog")
         assert "read_verilog /tmp/a.v" in result
         assert "read_verilog /tmp/b.v" in result
 
     def test_systemverilog(self) -> None:
-        result = _yosys_read_cmds(["/tmp/design.sv"], "systemverilog")
+        result = yosys_read_cmds(["/tmp/design.sv"], "systemverilog")
         assert result.strip() == "read_verilog -sv /tmp/design.sv"
 
     def test_vhdl_single_file_with_top(self) -> None:
-        result = _yosys_read_cmds(["/tmp/design.vhd"], "vhdl", top_module="top_entity")
+        result = yosys_read_cmds(["/tmp/design.vhd"], "vhdl", top_module="top_entity")
         assert result.strip() == "ghdl --std=08 /tmp/design.vhd -e top_entity"
 
     def test_vhdl_multi_file_single_invocation(self) -> None:
-        result = _yosys_read_cmds(
+        result = yosys_read_cmds(
             ["/tmp/pkg.vhd", "/tmp/design.vhd", "/tmp/top.vhd"],
             "vhdl",
             top_module="my_top",
@@ -228,12 +228,12 @@ class TestYosysReadCmds:
         )
 
     def test_vhdl_without_top(self) -> None:
-        result = _yosys_read_cmds(["/tmp/design.vhd"], "vhdl")
+        result = yosys_read_cmds(["/tmp/design.vhd"], "vhdl")
         assert "-e" not in result
         assert result.strip() == "ghdl --std=08 /tmp/design.vhd"
 
     def test_windows_backslashes_converted(self) -> None:
-        result = _yosys_read_cmds(["C:\\tmp\\design.v"], "verilog")
+        result = yosys_read_cmds(["C:\\tmp\\design.v"], "verilog")
         assert "\\" not in result
         assert "C:/tmp/design.v" in result
 
@@ -779,7 +779,7 @@ class TestBuildManager:
         import sys as _sys
         import time as _time
 
-        from tools.build_manager import _terminate_tree
+        from fpgazero_mcp.tools.build_manager import _terminate_tree
 
         popen_kwargs: dict = {}
         if _sys.platform == "win32":
@@ -888,9 +888,7 @@ class TestFilelistParsing:
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
         (tmpdir / "b.v").write_text("module b; endmodule", encoding="utf-8")
         (tmpdir / "files.f").write_text("a.v\nb.v\n", encoding="utf-8")
-        sources, incdirs, defines = _parse_filelist(
-            str(tmpdir / "files.f"), str(tmpdir)
-        )
+        sources, incdirs, defines = parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
         assert len(sources) == 2
 
     def test_incdir_and_define(self) -> None:
@@ -900,9 +898,7 @@ class TestFilelistParsing:
             encoding="utf-8",
         )
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
-        sources, incdirs, defines = _parse_filelist(
-            str(tmpdir / "files.f"), str(tmpdir)
-        )
+        sources, incdirs, defines = parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
         assert len(sources) == 1
         assert any("include" in d for d in incdirs)
         assert "SIMULATION" in defines
@@ -913,7 +909,7 @@ class TestFilelistParsing:
             "# comment\n\n// another\na.v\n", encoding="utf-8"
         )
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
-        sources, _, _ = _parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
+        sources, _, _ = parse_filelist(str(tmpdir / "files.f"), str(tmpdir))
         assert len(sources) == 1
 
     def test_project_dir_uses_filelist(self) -> None:
@@ -922,7 +918,7 @@ class TestFilelistParsing:
         (tmpdir / "a.v").write_text("module a; endmodule", encoding="utf-8")
         # files.f specifies order: b.v first
         (tmpdir / "files.f").write_text("b.v\na.v\n", encoding="utf-8")
-        paths, err = _resolve_sources(project_dir=str(tmpdir), language="verilog")
+        paths, err = resolve_sources(project_dir=str(tmpdir), language="verilog")
         assert err is None
         # Order should match filelist, not alphabetical glob
         basenames = [os.path.basename(p) for p in paths]
@@ -990,7 +986,7 @@ class TestVcdSummary:
 
 class TestIncludePaths:
     def test_include_dirs_in_read_verilog(self) -> None:
-        result = _yosys_read_cmds(
+        result = yosys_read_cmds(
             ["/tmp/a.v"],
             "verilog",
             include_dirs=["/project/rtl", "/project/inc"],
@@ -999,7 +995,7 @@ class TestIncludePaths:
         assert "-I/project/inc" in result
 
     def test_defines_in_read_verilog(self) -> None:
-        result = _yosys_read_cmds(
+        result = yosys_read_cmds(
             ["/tmp/a.v"],
             "verilog",
             defines=["SIMULATION", "WIDTH=8"],
@@ -1008,7 +1004,7 @@ class TestIncludePaths:
         assert "-DWIDTH=8" in result
 
     def test_no_include_dirs_for_vhdl(self) -> None:
-        result = _yosys_read_cmds(
+        result = yosys_read_cmds(
             ["/tmp/a.vhd"],
             "vhdl",
             top_module="top",

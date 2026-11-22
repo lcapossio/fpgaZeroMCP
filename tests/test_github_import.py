@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-import registry.github as gh
+import fpgazero_mcp.registry.github as gh
 
 
 def _mk_tmp_dir() -> Path:

@@ -30,7 +30,7 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy
-        run: mypy tools/ registry/ server.py --ignore-missing-imports
+        run: mypy src/fpgazero_mcp --ignore-missing-imports
 
   test:
     name: Unit tests (${{ matrix.os }})
@@ -52,7 +52,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run unit tests with coverage
-        run: pytest tests/ -v -m "not integration" --cov=tools --cov=registry --cov=server --cov-report=term-missing
+        run: pytest tests/ -v -m "not integration" --cov=fpgazero_mcp --cov-report=term-missing
 
   integration:
     name: Integration tests (OSS CAD Suite)
