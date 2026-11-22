@@ -59,6 +59,12 @@ Start, monitor, and cancel long-running EDA builds in the background.
 
 **Blocked:** `python -c`, arbitrary scripts, non-EDA binaries.
 
+On Windows, a `.exe`, `.bat` or `.cmd` suffix is accepted (Vivado installs
+`vivado.bat`), and a bare name is resolved through `PATHEXT` before launch.
+Because a batch file runs under `cmd.exe`, arguments containing
+`& | < > ^ % ! "` or line breaks are refused for `.bat`/`.cmd` launchers. On
+Linux and macOS the command is passed to the OS unchanged.
+
 ## build_status
 
 | Parameter | Type | Default | Description |
@@ -104,7 +110,9 @@ No parameters. Returns a list of all tracked builds (no full log parsing for spe
 |---|---|---|---|
 | `build_id` | string | *(required)* | Build ID to cancel |
 
-Sends SIGTERM, waits 5s, then SIGKILL if needed.
+Terminates the build's whole process tree. On POSIX the build runs in its own
+session: the group gets SIGTERM, and any member still alive after 5 s gets
+SIGKILL, even if the top process already exited. On Windows, `taskkill /T /F`.
 
 ## cleanup_build_logs
 

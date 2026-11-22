@@ -46,6 +46,12 @@ def _allowed_project_roots() -> list[Path]:
                 roots.append(Path(d).resolve())
     # User home directory is always allowed
     roots.append(Path.home().resolve())
+    # So is the server's own data root: tools create work dirs there (e.g.
+    # close_timing's sweep dir) and pass them on, and FPGAZERO_DATA_DIR may
+    # point outside cwd and home.
+    from fpgazero_mcp.paths import data_root
+
+    roots.append(data_root().resolve())
     return roots
 
 
@@ -69,8 +75,23 @@ def validate_project_dir(project_dir: str) -> str | None:
     return validate_path_in_roots(project_dir, "project_dir")
 
 
+# Characters that separate commands or trigger substitution in the scripts
+# these names are written into: Yosys splits commands on ';' and newlines
+# (and runs '!cmd' as a shell command), Tcl substitutes $ and [ ] and quotes
+# with { } and ". No HDL source needs them in its file name.
+_FILENAME_SCRIPT_CHARS = frozenset(';{}[]$"`')
+
+
 def validate_filename(fname: str) -> str | None:
     """Return an error string if a filename in the files dict is unsafe."""
+    if any(ord(c) < 0x20 or c == "\x7f" for c in fname):
+        return f"Unsafe filename (control character): {fname!r}"
+    bad = sorted(set(fname) & _FILENAME_SCRIPT_CHARS)
+    if bad:
+        return (
+            f"Unsafe filename (contains {' '.join(bad)}, which would be "
+            f"interpreted in the generated tool script): {fname}"
+        )
     p = Path(fname)
     if p.is_absolute():
         return f"Unsafe filename (absolute path): {fname}"

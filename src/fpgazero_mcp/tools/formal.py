@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable
+from uuid import uuid4
 
+from fpgazero_mcp.paths import data_root
 from fpgazero_mcp.tools.errors import (
     err,
     FORMAL_FAILED,
@@ -25,6 +28,7 @@ from fpgazero_mcp.tools.errors import (
     TIMEOUT,
     TOOL_NOT_FOUND,
 )
+from fpgazero_mcp.tools import proctree
 from fpgazero_mcp.tools.progress import make_reporter
 from fpgazero_mcp.tools.sources import (
     resolve_sources,
@@ -51,8 +55,12 @@ ENGINES = {
 }
 
 # Modes that can only ever give a bounded answer: a passing bmc/cover run says
-# "no counterexample within depth", not "the property holds".
-_BOUNDED_MODES = ("bmc", "cover", "live")
+# "no counterexample within depth", not "the property holds". `live` is an
+# unbounded liveness check and `prove` an unbounded safety proof.
+_BOUNDED_MODES = ("bmc", "cover")
+
+# sby's live mode is only implemented by the aiger suprove engine.
+_LIVE_ENGINES = ("aiger-suprove",)
 
 # "SBY 12:00:00 [design] DONE (PASS, rc=0)"
 _DONE_RE = re.compile(r"DONE \((PASS|FAIL|UNKNOWN|ERROR)[,)]")
@@ -111,9 +119,10 @@ def _sby_config(
 ) -> str:
     """Assemble a complete .sby task file."""
     options = [f"mode {mode}"]
-    # `depth` is meaningless for prove's induction step but sby accepts and uses
-    # it for the BMC phase that precedes induction.
-    options.append(f"depth {depth}")
+    # `depth` bounds bmc/cover and the base case of prove's induction. live
+    # mode has no depth, and sby rejects options a task doesn't use.
+    if mode != "live":
+        options.append(f"depth {depth}")
     if multiclock:
         options.append("multiclock on")
 
@@ -174,6 +183,45 @@ def _parse_sby_log(stdout: str, returncode: int) -> dict:
     return result
 
 
+def _keep_traces(tmpdir: str, parsed: dict) -> None:
+    """Copy sby's trace files out of the temporary workspace.
+
+    The workspace is deleted when formal_verify returns, so a trace path
+    pointing into it would be dangling by the time the caller reads it.
+    Traces go under the data root; parsed["counterexample_trace"] is rewritten
+    to the kept copy and parsed["traces"] lists all of them.
+    """
+    workdir = Path(tmpdir) / "design"  # sby names it after design.sby
+    found = sorted(
+        p for ext in ("*.vcd", "*.yw") for p in workdir.glob(f"engine_*/**/{ext}")
+    )
+    if not found:
+        return
+    keep = data_root() / "formal" / uuid4().hex[:12]
+    kept: dict[str, str] = {}
+    for src in found:
+        rel = src.relative_to(workdir).as_posix()
+        dst = keep / rel
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+        except OSError:
+            continue
+        kept[rel] = str(dst)
+    if not kept:
+        return
+    parsed["traces"] = [v for k, v in kept.items() if k.endswith(".vcd")] or list(
+        kept.values()
+    )
+    trace = parsed.get("counterexample_trace")
+    if trace:
+        # sby reports it relative to tmpdir ("design/engine_0/trace.vcd") or
+        # to its workdir ("engine_0/trace.vcd").
+        rel = trace.replace("\\", "/").removeprefix("design/")
+        if rel in kept:
+            parsed["counterexample_trace"] = kept[rel]
+
+
 def formal_verify(
     code: str = "",
     files: dict[str, str] | None = None,
@@ -215,6 +263,12 @@ def formal_verify(
             INVALID_INPUT,
             f"Invalid engine '{engine}'. Must be one of: {', '.join(sorted(ENGINES))}.",
         )
+    if mode == "live" and engine not in _LIVE_ENGINES:
+        return err(
+            INVALID_INPUT,
+            f"mode='live' requires engine {' or '.join(_LIVE_ENGINES)} "
+            f"(got '{engine}').",
+        )
     if not isinstance(depth, int) or depth < 1 or depth > 10000:
         return err(INVALID_INPUT, "depth must be an integer between 1 and 10000.")
 
@@ -251,7 +305,27 @@ def formal_verify(
                     return err(INTERNAL_ERROR, f"Could not stage '{path}': {exc}")
             staged.append(name)
 
-        script = _sby_script(src_paths, language, top_module, include_dirs, defines)
+        # sby runs yosys on its own copies of the sources, in its workdir, so
+        # `include lookups must use absolute directories: the ones given
+        # (relative to project_dir), and for a project the root and each
+        # source's directory, where its headers sit. The script line is
+        # space-separated, so directories added automatically are skipped
+        # when they contain whitespace rather than breaking the read.
+        base = project_dir or os.getcwd()
+        inc_dirs = [
+            os.path.abspath(d if os.path.isabs(d) else os.path.join(base, d))
+            for d in include_dirs or []
+        ]
+        if project_dir:
+            auto = [project_dir, *(os.path.dirname(p) for p in src_paths)]
+            inc_dirs += [
+                a
+                for a in (os.path.abspath(d) for d in auto)
+                if not any(c.isspace() for c in a)
+            ]
+        inc_dirs = list(dict.fromkeys(inc_dirs))
+
+        script = _sby_script(src_paths, language, top_module, inc_dirs, defines)
         config = _sby_config(script, staged, mode, depth, ENGINES[engine], multiclock)
         sby_file = os.path.join(tmpdir, "design.sby")
         Path(sby_file).write_text(config, encoding="utf-8")
@@ -259,12 +333,11 @@ def formal_verify(
         report(0.2, f"Running sby ({mode}, depth {depth})")
 
         try:
-            proc = subprocess.run(
+            # run_tree, not subprocess.run: sby starts solvers in their own
+            # process groups, which a plain timeout would leave running.
+            proc = proctree.run_tree(
                 # -f overwrites the workdir from any previous run in this tmpdir.
                 ["sby", "-f", "design.sby"],
-                capture_output=True,
-                text=True,
-                errors="replace",
                 timeout=timeout,
                 cwd=tmpdir,
             )
@@ -287,11 +360,13 @@ def formal_verify(
         parsed = _parse_sby_log(combined, proc.returncode)
         status = parsed["status"]
 
+        _keep_traces(tmpdir, parsed)
+
         result: dict = {
             "success": status == "PASS",
             "tool": "sby",
             "mode": mode,
-            "depth": depth,
+            "depth": depth if mode != "live" else None,
             "engine": ENGINES[engine],
             "top_module": top_module,
             "language": language,
@@ -310,6 +385,11 @@ def formal_verify(
             elif mode == "cover":
                 result["summary"] = (
                     f"All cover statements were reached within {depth} cycles."
+                )
+            elif mode == "live":
+                result["proved"] = True
+                result["summary"] = (
+                    f"Proved: the liveness properties in '{top_module}' hold."
                 )
             else:
                 result["proved"] = False

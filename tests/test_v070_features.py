@@ -285,7 +285,7 @@ class TestVivadoMockedFlow:
                 f.write(b"\x00\xff\x00bitstream")
             return _completed(cmd, stdout=_VIVADO_LOG)
 
-        monkeypatch.setattr(vv.subprocess, "run", fake_run)
+        monkeypatch.setattr(vv.proctree, "run_tree", fake_run)
 
         progress_msgs: list[tuple[float, str]] = []
         result = vv.vivado_place_and_route(
@@ -323,8 +323,8 @@ class TestVivadoMockedFlow:
 
         monkeypatch.setattr(vv.shutil, "which", lambda _cmd: "vivado")
         monkeypatch.setattr(
-            vv.subprocess,
-            "run",
+            vv.proctree,
+            "run_tree",
             lambda cmd, **kw: _completed(
                 cmd, stdout="ERROR: [Synth 8-439] module not found", returncode=1
             ),
@@ -344,7 +344,7 @@ class TestVivadoMockedFlow:
         def raise_timeout(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd, 5)
 
-        monkeypatch.setattr(vv.subprocess, "run", raise_timeout)
+        monkeypatch.setattr(vv.proctree, "run_tree", raise_timeout)
         result = vv.vivado_place_and_route(
             code="module t; endmodule",
             top_module="t",

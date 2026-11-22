@@ -17,6 +17,7 @@ returned.
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Callable
 from uuid import uuid4
 
@@ -85,6 +86,14 @@ def _attempt_metric(attempt: dict) -> tuple:
     if wns is not None:
         return (1, float(wns))
     return (1, float("-inf"))
+
+
+def _over_budget(attempts: int, timeout: int) -> dict:
+    return err(
+        INVALID_INPUT,
+        f"{attempts} attempts x {timeout} s timeout exceeds the "
+        f"{MAX_TOTAL_BUDGET_S} s sweep budget. Lower max_attempts or timeout.",
+    )
 
 
 def _summarize(attempt_no: int, label: dict, result: dict) -> dict:
@@ -209,16 +218,16 @@ def close_timing(
             plan = [{"seed": int(s)} for s in seeds[:limit]]
         else:
             limit = max_attempts or DEFAULT_ATTEMPTS_NEXTPNR
+            # Check the budget before building the list: max_attempts is
+            # caller-supplied and could be enormous.
+            if limit * timeout > MAX_TOTAL_BUDGET_S:
+                return _over_budget(limit, timeout)
             plan = [{"seed": n} for n in range(1, limit + 1)]
 
     if not plan:
         return err(INVALID_INPUT, "No attempts to run (max_attempts resolved to 0).")
     if len(plan) * timeout > MAX_TOTAL_BUDGET_S:
-        return err(
-            INVALID_INPUT,
-            f"{len(plan)} attempts x {timeout} s timeout exceeds the "
-            f"{MAX_TOTAL_BUDGET_S} s sweep budget. Lower max_attempts or timeout.",
-        )
+        return _over_budget(len(plan), timeout)
 
     # ---- a shared work_dir lets nextpnr attempts reuse one netlist -------
     sweep_dir = work_dir
@@ -233,6 +242,7 @@ def close_timing(
     attempts: list[dict] = []
     results: list[dict] = []
     closed = False
+    best_metric: tuple | None = None
 
     for i, label in enumerate(plan):
         report(i / len(plan), f"timing attempt {i + 1}/{len(plan)}: {label}")
@@ -279,6 +289,23 @@ def close_timing(
         summary = _summarize(i + 1, record_label, result)
         attempts.append(summary)
 
+        # Every attempt writes the same output file in the shared work_dir, so
+        # a later, worse attempt would overwrite the bitstream of the winner.
+        # Keep a copy of the best so far (same ranking, first wins on ties, as
+        # the final pick below).
+        if sweep_dir and result.get("bitstream_path"):
+            metric = _attempt_metric(summary)
+            if best_metric is None or metric > best_metric:
+                src = result["bitstream_path"]
+                dst = os.path.join(sweep_dir, "best" + os.path.splitext(src)[1])
+                try:
+                    shutil.copyfile(src, dst)
+                except OSError:
+                    pass
+                else:
+                    result["bitstream_path"] = dst
+                    best_metric = metric
+
         # A toolchain that is absent or a design that will not synthesize will
         # fail identically on every attempt; stop rather than burn the budget.
         if result.get("error_code") in {
@@ -289,7 +316,9 @@ def close_timing(
         }:
             break
 
-        if summary.get("meets_target"):
+        # A run can log a passing fmax and still fail to route; that attempt
+        # produced nothing usable, so it must not close (or stop) the sweep.
+        if summary["routed"] and summary.get("meets_target"):
             closed = True
             if stop_when_met:
                 break

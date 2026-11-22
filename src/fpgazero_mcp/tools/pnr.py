@@ -69,6 +69,32 @@ def _find_constraints(project_dir: str, target: str) -> str | None:
     return None
 
 
+_HEADER_EXTS = (".vh", ".svh", ".h", ".inc")
+
+
+def _header_files(include_dirs: list[str], src_paths: list[str]) -> list[str]:
+    """Header files synthesis may `include: those in the include dirs and in
+    each source file's own directory (where Yosys also looks).
+
+    They aren't in src_paths, so without this an edited header would leave
+    the netlist fingerprint unchanged and a stale netlist would be reused.
+    """
+    dirs = dict.fromkeys(
+        os.path.abspath(d)
+        for d in [*include_dirs, *(os.path.dirname(p) for p in src_paths)]
+    )
+    headers: list[str] = []
+    for d in dirs:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        headers.extend(
+            os.path.join(d, n) for n in names if n.lower().endswith(_HEADER_EXTS)
+        )
+    return headers
+
+
 def _inputs_digest(script: str, src_paths: list[str]) -> str:
     """Fingerprint the synthesis inputs: the yosys script plus every source.
 
@@ -336,7 +362,9 @@ def place_and_route(
         netlist_reused = False
 
         stamp_path = netlist_json + ".inputs"
-        digest = _inputs_digest(script, src_paths)
+        digest = _inputs_digest(
+            script, src_paths + _header_files(include_dirs, src_paths)
+        )
         reuse_skipped_reason = ""
 
         if reuse_netlist:

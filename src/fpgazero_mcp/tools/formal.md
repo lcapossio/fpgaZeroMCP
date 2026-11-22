@@ -35,7 +35,7 @@ Source input uses the shared `tools/sources.py` resolver, so `code`, `files` and
 | `bmc` | Does any assertion fail within `depth` cycles? | PASS is **bounded** — no counterexample up to `depth` |
 | `prove` | Does any assertion fail in any reachable state? | PASS sets `proved: true` — unbounded, by k-induction |
 | `cover` | Is each `cover()` statement reachable? | PASS means all were reached within `depth` |
-| `live` | Do liveness properties hold? | bounded |
+| `live` | Do liveness properties hold? | PASS sets `proved: true` — unbounded. Requires `engine="aiger-suprove"`; `depth` does not apply (sby rejects it) and is reported as `null` |
 
 `bmc` is the default because it always terminates with a usable answer. `prove`
 can return `UNKNOWN` when induction fails even though the property is true —
@@ -83,10 +83,11 @@ written verbatim into the generated task file.
   "mode": "bmc",
   "depth": 20,
   "engine": "smtbmc",
-  "bounded": True,            # present for bmc/cover/live
+  "bounded": True,            # present for bmc/cover
   "engines": [{"engine": "smtbmc yices", "result": "FAIL"}],
   "failed_assertions": [{"module": "top", "location": "design.sv:14.7-14.32 (...)"}],
-  "counterexample_trace": "demo/engine_0/trace.vcd",
+  "counterexample_trace": "~/.fpgazero_mcp/formal/<id>/engine_0/trace.vcd",
+  "traces": ["~/.fpgazero_mcp/formal/<id>/engine_0/trace.vcd"],
   "error": "Property violated in 'top'. First failure: ...",
   "error_code": "formal_failed",
   "log": "...",
@@ -96,6 +97,19 @@ written verbatim into the generated task file.
 
 A PASS in a bounded mode reports `proved: false` and says so in `summary`, so a
 client does not mistake "no counterexample in 20 cycles" for a proof.
+
+Trace files (`.vcd`, and `.yw` witnesses) are copied out of the temporary
+workspace into the data root (`<data root>/formal/<id>/`) before it is deleted,
+so `counterexample_trace` and `traces` are absolute paths that stay valid.
+
+`include` lookups: sby runs yosys on its own copies of the sources, so include
+directories are passed as absolute paths. Relative `include_dirs` are resolved
+against `project_dir`; for a project, the project root and each source's
+directory are added automatically (skipped if they contain whitespace, which
+the space-separated script line can't carry).
+
+On `timeout` the whole process tree is terminated: sby starts its solvers in
+separate process groups, which a plain subprocess timeout would leave running.
 
 ## Failure modes
 

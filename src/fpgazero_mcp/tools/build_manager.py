@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -21,6 +20,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from fpgazero_mcp.paths import data_root
+from fpgazero_mcp.tools.proctree import group_popen_kwargs, terminate_tree
 
 if TYPE_CHECKING:
     from fpgazero_mcp.tools.build_parser import BuildLogParser
@@ -88,6 +88,10 @@ class BuildRecord:
     _parser: BuildLogParser | None = field(default=None, init=False, repr=False)
     _parse_offset: int = field(default=0, init=False, repr=False)
     _parse_skipped: int = field(default=0, init=False, repr=False)
+    # Set after the first chunk of a line longer than _PARSE_CHUNK_BYTES was
+    # parsed: the rest of that line, up to its newline, is dropped rather
+    # than parsed as if it were new lines.
+    _parse_drop_to_eol: bool = field(default=False, init=False, repr=False)
     _parse_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
     )
@@ -130,26 +134,43 @@ class BuildRecord:
                     head = head[: head.rfind(b"\n") + 1]
                     parser.feed(head.decode("utf-8", errors="replace"))
                     self._parse_offset = len(head)
+                # Never seek back into what was already parsed (a log just
+                # over the limit would otherwise re-parse most of the head).
                 resume = size - self._PARSE_MAX_CATCHUP_BYTES
-                # Resume at the start of the next full line.
-                f.seek(resume)
-                f.readline()
-                self._parse_skipped += f.tell() - self._parse_offset
-                self._parse_offset = f.tell()
+                if resume > self._parse_offset:
+                    # Land on the start of the next full line; starting one
+                    # byte early keeps a line that begins exactly at resume.
+                    f.seek(resume - 1)
+                    f.readline()
+                    self._parse_skipped += f.tell() - self._parse_offset
+                    self._parse_offset = f.tell()
+                    self._parse_drop_to_eol = False
             f.seek(self._parse_offset)
             while True:
                 chunk = f.read(self._PARSE_CHUNK_BYTES)
                 if not chunk:
                     break
+                if self._parse_drop_to_eol:
+                    nl = chunk.find(b"\n")
+                    drop = len(chunk) if nl < 0 else nl + 1
+                    self._parse_drop_to_eol = nl < 0
+                    self._parse_skipped += drop
+                    self._parse_offset += drop
+                    f.seek(self._parse_offset)
+                    continue
                 at_eof = len(chunk) < self._PARSE_CHUNK_BYTES
                 if not (at_eof and finished):
                     # Parse up to the last complete line; the rest is picked
                     # up once its newline has been written.
                     cut = chunk.rfind(b"\n") + 1
-                    if cut == 0 and at_eof:
-                        break
-                    if cut:  # else: a chunk-sized line — parse it as is
+                    if cut:
                         chunk = chunk[:cut]
+                    elif at_eof:
+                        break
+                    else:
+                        # A single line longer than a chunk: parse its first
+                        # chunk as the line and drop the remainder.
+                        self._parse_drop_to_eol = True
                     f.seek(self._parse_offset + len(chunk))
                 parser.feed(chunk.decode("utf-8", errors="replace"))
                 self._parse_offset += len(chunk)
@@ -250,7 +271,13 @@ def _resolve_executable(
     Popen doesn't apply PATHEXT on Windows, so a bare "vivado" (vivado.bat)
     would not be found; shutil.which does. Unresolvable commands are passed
     through unchanged so Popen reports them as not found.
+
+    Windows only: POSIX Popen already finds the command, and resolving it
+    here would change which binary runs: exec searches relative PATH
+    entries from the child's cwd (work_dir), shutil.which from ours.
     """
+    if os.name != "nt":
+        return cmd, None
     exe = shutil.which(cmd[0], path=path) or cmd[0]
     if exe.lower().endswith((".bat", ".cmd")):
         for arg in cmd[1:]:
@@ -283,41 +310,8 @@ def _validate_work_dir(work_dir: str | None) -> str | None:
         return f"Invalid work_dir: {exc}"
 
 
-def _terminate_tree(proc: subprocess.Popen) -> None:
-    """Terminate a build process and all of its children.
-
-    On Windows, proc.terminate() kills only the immediate child, leaving
-    grandchildren (yosys/nextpnr spawned by a LiteX build) running; taskkill /T
-    takes down the tree. On POSIX the build runs in its own session, so the
-    process group can be signalled as a whole.
-    (sys.platform, not os.name — mypy narrows the former, so each CI
-    platform only type-checks its own branch.)
-    """
-    if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-            capture_output=True,
-        )
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        return
-
-    import signal
-
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            proc.kill()
-        proc.wait(timeout=5)
+# Kept under the old name: cancel() and existing callers/tests use it.
+_terminate_tree = terminate_tree
 
 
 class BuildManager:
@@ -360,11 +354,7 @@ class BuildManager:
         # Run the build in its own process group/session so cancel() can
         # terminate the whole tree (e.g. LiteX spawning yosys/nextpnr), not
         # just the immediate child.
-        popen_kwargs: dict = {}
-        if sys.platform == "win32":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            popen_kwargs["start_new_session"] = True
+        popen_kwargs = group_popen_kwargs()
 
         try:
             log_file = open(log_path, "w", encoding="utf-8")

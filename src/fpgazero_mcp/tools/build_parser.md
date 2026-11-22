@@ -111,7 +111,7 @@ Tool-specific patterns avoid false positives:
 
 The parser is used internally by `build_status` -- you don't call it directly via MCP. When you check a build's status, the `build_info` field contains the parsed results.
 
-`build_status` parses the log incrementally: each poll parses only the output written since the previous poll, so polling stays cheap however long the log grows, and warning/error counts cover the whole log. If a build is first polled after it has already written more than 8 MB, the parser reads the head of the log (for tool detection) and the most recent 8 MB, skipping the middle; `build_info.log_bytes_skipped` then reports how much was skipped, and the counts cover only what was parsed.
+`build_status` parses the log incrementally: each poll parses only the output written since the previous poll, so polling stays cheap however long the log grows, and warning/error counts cover the whole log. If a build is first polled after it has already written more than 8 MB, the parser reads the head of the log (for tool detection) and the most recent 8 MB, skipping the middle; `build_info.log_bytes_skipped` then reports how much was skipped, and the counts cover only what was parsed. A single line longer than 4 MB is parsed by its first 4 MB only; the rest of it is skipped (and counted in `log_bytes_skipped`) rather than parsed as if it were new lines.
 
 ### Python
 

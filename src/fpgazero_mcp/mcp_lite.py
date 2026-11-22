@@ -285,24 +285,78 @@ class Server:
 
         Members run concurrently; the replies go back as one array, without
         entries for notifications, and nothing at all if every member was one.
-        Batch members aren't tracked for notifications/cancelled.
+        Each member is tracked like a standalone request, so
+        notifications/cancelled can abort it; a cancelled member gets no entry.
         """
         if not batch:
             self._send(self._make_error(None, -32600, "Invalid Request: empty batch"))
             return
 
         async def _one(member: object) -> dict | None:
-            if not isinstance(member, dict):
-                return self._make_error(None, -32600, "Invalid Request")
-            if member.get("method") == "notifications/cancelled":
-                self._cancel_request((member.get("params") or {}).get("requestId"))
-                return None
-            return await self._dispatch(member)
+            done, reply = self._screen(member)
+            if done:
+                return reply
+            assert isinstance(member, dict)
+            task = asyncio.ensure_future(self._dispatch(member))
+            self._track(member.get("id"), task)
+            # wait() rather than await: a client cancelling this member must
+            # not raise CancelledError into the batch and drop its siblings.
+            await asyncio.wait({task})
+            return None if task.cancelled() else task.result()
 
-        replies = await asyncio.gather(*(_one(m) for m in batch))
-        responses = [r for r in replies if r is not None]
+        # return_exceptions: one member failing unexpectedly must not discard
+        # the replies of the others.
+        replies = await asyncio.gather(
+            *(_one(m) for m in batch), return_exceptions=True
+        )
+        responses: list[dict] = []
+        for r in replies:
+            if isinstance(r, BaseException):
+                logger.error("Batch member failed", exc_info=r)
+                responses.append(self._make_error(None, -32603, "Internal error"))
+            elif r is not None:
+                responses.append(r)
         if responses:
             self._send(responses)
+
+    def _screen(self, message: object) -> tuple[bool, dict | None]:
+        """Check a message's envelope and handle notifications/cancelled.
+
+        Returns (done, reply). done=True means the message must not be
+        dispatched; reply is then the error to send, or None for nothing.
+        """
+        if not isinstance(message, dict):
+            return True, self._make_error(None, -32600, "Invalid Request")
+        method = message.get("method")
+        if not isinstance(method, str):
+            if "result" in message or "error" in message:
+                return True, None  # a response; this server sends no requests
+            msg_id = message.get("id")
+            if not isinstance(msg_id, (str, int)):
+                msg_id = None
+            return True, self._make_error(msg_id, -32600, "Invalid Request")
+        if method == "notifications/cancelled":
+            params = message.get("params")
+            if isinstance(params, dict):
+                self._cancel_request(params.get("requestId"))
+            return True, None
+        return False, None
+
+    def _track(self, msg_id: object, task: asyncio.Future) -> None:
+        """Register a request's task so notifications/cancelled can find it."""
+        # JSON-RPC ids are strings or integers. Anything else (e.g. a list)
+        # is unhashable and would raise here, killing the read loop; such a
+        # request still gets its response, it just can't be cancelled.
+        if not isinstance(msg_id, (str, int)):
+            return
+        self._inflight[msg_id] = task
+
+        def _untrack(_task: asyncio.Future) -> None:
+            # A later request may have reused the id; only drop our own entry.
+            if self._inflight.get(msg_id) is _task:
+                del self._inflight[msg_id]
+
+        task.add_done_callback(_untrack)
 
     def _cancel_request(self, request_id: object) -> None:
         """Handle notifications/cancelled: abort the in-flight request task.
@@ -312,6 +366,8 @@ class Server:
         A subprocess already started by the tool keeps running to completion
         in its worker thread; only the response is abandoned.
         """
+        if not isinstance(request_id, (str, int)):
+            return
         task = self._inflight.get(request_id)
         if task is not None and not task.done():
             logger.info("Request %r cancelled by client", request_id)
@@ -354,28 +410,21 @@ class Server:
                 pending.add(batch_task)
                 batch_task.add_done_callback(pending.discard)
                 continue
-            if not isinstance(message, dict):
-                # Valid JSON but not a request object (e.g. a bare number):
-                # answer it rather than letting .get() kill the read loop.
-                self._send(self._make_error(None, -32600, "Invalid Request"))
+            # Anything malformed (a bare number, no method, params that
+            # aren't an object) is answered or dropped here rather than
+            # raising and killing the read loop.
+            done, reply = self._screen(message)
+            if done:
+                if reply is not None:
+                    self._send(reply)
                 continue
-
-            if message.get("method") == "notifications/cancelled":
-                self._cancel_request((message.get("params") or {}).get("requestId"))
-                continue
+            assert isinstance(message, dict)
 
             task = asyncio.create_task(self._handle_message(message))
             pending.add(task)
             task.add_done_callback(pending.discard)
 
-            msg_id = message.get("id")
-            if msg_id is not None:
-                self._inflight[msg_id] = task
-
-                def _untrack(_task: asyncio.Task, _id: object = msg_id) -> None:
-                    self._inflight.pop(_id, None)
-
-                task.add_done_callback(_untrack)
+            self._track(message.get("id"), task)
 
         # Let in-flight requests finish before shutting down.
         if pending:

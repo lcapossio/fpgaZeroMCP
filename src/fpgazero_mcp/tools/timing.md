@@ -34,8 +34,9 @@ Placer seeds do not change the netlist, so the nextpnr path synthesizes once
 and passes `reuse_netlist=True` for the remaining attempts, against one shared
 `work_dir`. When the caller supplies a `work_dir` that already holds a netlist,
 reuse is attempted from the first attempt too: `place_and_route` records a
-SHA-256 fingerprint of the synthesis inputs (the generated `.ys` script plus
-every source file's contents) beside the netlist, verifies it before reusing,
+SHA-256 fingerprint of the synthesis inputs (the generated `.ys` script, every
+source file's contents, and the `.vh`/`.svh`/`.h`/`.inc` headers in the include
+directories and source directories) beside the netlist, verifies it before reusing,
 and re-synthesizes on any mismatch — reporting `netlist_reused: False` with a
 `netlist_reuse_skipped` reason. The fingerprint is content-based rather than
 mtime-based because `resolve_sources` rewrites `code`/`files` sources into the
@@ -72,11 +73,22 @@ writes a bitstream.
 This is why `success` and `closed` are separate:
 
 - `success` — at least one attempt routed
-- `closed` — the target was met (`None` when no target was known)
+- `closed` — a routed attempt met the target (`None` when no target was known).
+  An attempt that logged a passing fmax but failed to route does not count,
+  and does not stop the sweep.
 
 A design that routes at 46 MHz against a 48 MHz target is `success: True,
 closed: False`. Its bitstream is still returned, because it can be programmed
 and measured.
+
+Every attempt writes the same output file in the shared `work_dir`, so the
+sweep copies the bitstream of the best attempt so far to `best.<ext>` there as
+it goes; `bitstream_path` points at that copy, not at a file a later, worse
+attempt overwrote.
+
+Vivado results carry `routed` with the same meaning as nextpnr's: routing
+completed (`route_design completed successfully`), whether or not
+`write_bitstream` then succeeded.
 
 ## Best-attempt selection
 

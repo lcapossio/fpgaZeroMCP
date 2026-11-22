@@ -18,6 +18,7 @@ import subprocess
 from typing import Callable
 from uuid import uuid4
 
+from fpgazero_mcp.tools import proctree
 from fpgazero_mcp.tools.build_parser import parse_build_log
 from fpgazero_mcp.tools.progress import make_reporter
 from fpgazero_mcp.tools.sources import (
@@ -63,9 +64,18 @@ ROUTE_DIRECTIVES = (
 # create_clock -period <ns> in XDC text
 _RE_XDC_PERIOD = re.compile(r"create_clock\s+[^\n]*-period\s+([\d.]+)")
 
+# A number that can't swallow a sentence-ending period: Vivado prints
+# "Post Placement Timing Summary WNS=6.361. For the most ...", and a
+# [\d.]+ capture there makes float() raise.
+_NUM = r"-?(?:\d+(?:\.\d*)?|\.\d+)"
+
 # route_design inline summary: "Estimated Timing Summary | WNS=0.087 | TNS=0.000"
-_RE_WNS_INLINE = re.compile(r"\bWNS\s*=\s*(-?[\d.]+)")
-_RE_TNS_INLINE = re.compile(r"\bTNS\s*=\s*(-?[\d.]+)")
+# Several appear per run (placement estimates, then routing); the last wins.
+_RE_WNS_INLINE = re.compile(r"\bWNS\s*=\s*(" + _NUM + ")")
+_RE_TNS_INLINE = re.compile(r"\bTNS\s*=\s*(" + _NUM + ")")
+
+# Printed by Vivado once routing finishes, before any later step can fail.
+_RE_ROUTE_DONE = re.compile(r"^route_design completed successfully", re.M)
 
 # report_timing_summary table:
 #     WNS(ns)      TNS(ns)  TNS Failing Endpoints ... WHS(ns)      THS(ns) ...
@@ -78,9 +88,35 @@ _RE_TIMING_TABLE = re.compile(
 )
 
 
+_TCL_BARE_WORD = re.compile(r"[A-Za-z0-9_.:/+-]+")
+_TCL_ESCAPE = frozenset(' \t"$[]{}\\;')
+
+
+def _tcl_word(s: str) -> str:
+    """Quote s as one literal Tcl word: no variable, command or backslash
+    substitution, no word or command splitting.
+
+    Brace quoting is literal but cannot hold an unbalanced brace: a source
+    file named 'a}; exec ...; #.v' would close the quote and run the rest
+    as Tcl. Such strings are backslash-escaped character by character
+    instead. Control characters are refused outright (backslash-newline is
+    a line continuation in Tcl, so it cannot be escaped that way).
+    """
+    if any(ord(c) < 0x20 or c == "\x7f" for c in s):
+        raise ValueError(f"control character in Tcl argument: {s!r}")
+    if _TCL_BARE_WORD.fullmatch(s):
+        return s
+    if not any(c in s for c in "{}\\"):
+        return "{" + s + "}"
+    return "".join("\\" + c if c in _TCL_ESCAPE else c for c in s)
+
+
 def _tcl_path(path: str) -> str:
-    """Format a filesystem path for TCL: forward slashes, brace-quoted."""
-    return "{" + path.replace("\\", "/") + "}"
+    """Format a filesystem path for Tcl: forward slashes, quoted literally
+    (brace-quoted whenever braces can hold it)."""
+    p = path.replace("\\", "/")
+    word = _tcl_word(p)
+    return "{" + p + "}" if word == p else word
 
 
 def _generate_tcl(
@@ -116,7 +152,12 @@ def _generate_tcl(
     def _flag(directive: str) -> str:
         return "" if directive == "default" else f" -directive {directive}"
 
-    lines.append(f"synth_design -top {top_module} -part {part}{_flag(synth_directive)}")
+    # top_module may legally contain '$' (Verilog identifier), which Tcl
+    # would substitute; part and directives are allowlist-checked.
+    lines.append(
+        f"synth_design -top {_tcl_word(top_module)} -part {part}"
+        f"{_flag(synth_directive)}"
+    )
     lines.append("opt_design")
     lines.append(f"place_design{_flag(place_directive)}")
     if phys_opt:
@@ -140,12 +181,12 @@ def _parse_timing(log: str, clock_period_ns: float | None) -> dict:
         timing["whs_ns"] = float(m.group(3))
         timing["ths_ns"] = float(m.group(4))
     else:
-        m = _RE_WNS_INLINE.search(log)
-        if m:
-            timing["wns_ns"] = float(m.group(1))
-        m = _RE_TNS_INLINE.search(log)
-        if m:
-            timing["tns_ns"] = float(m.group(1))
+        wns_all = _RE_WNS_INLINE.findall(log)
+        if wns_all:
+            timing["wns_ns"] = float(wns_all[-1])
+        tns_all = _RE_TNS_INLINE.findall(log)
+        if tns_all:
+            timing["tns_ns"] = float(tns_all[-1])
 
     wns = timing.get("wns_ns")
     if clock_period_ns and wns is not None and clock_period_ns > wns:
@@ -297,25 +338,30 @@ def vivado_place_and_route(
             if m:
                 clock_period_ns = float(m.group(1))
 
-        with open(tcl_file, "w", encoding="utf-8") as f:
-            f.write(
-                _generate_tcl(
-                    src_paths,
-                    language,
-                    top_module,
-                    part,
-                    xdc_file,
-                    bit_file,
-                    synth_directive,
-                    place_directive,
-                    route_directive,
-                    phys_opt,
-                )
+        try:
+            script = _generate_tcl(
+                src_paths,
+                language,
+                top_module,
+                part,
+                xdc_file,
+                bit_file,
+                synth_directive,
+                place_directive,
+                route_directive,
+                phys_opt,
             )
+        except ValueError as exc:
+            return {"success": False, "error": str(exc), "error_code": "invalid_input"}
+        with open(tcl_file, "w", encoding="utf-8") as f:
+            f.write(script)
 
         report(0.1, "running vivado batch flow (synth, place, route, bitstream)")
         try:
-            proc = subprocess.run(
+            # run_tree, not subprocess.run: on Windows vivado is vivado.bat,
+            # so a plain timeout would kill cmd.exe and leave Vivado running
+            # (and run() blocked on its output pipe until it finished).
+            proc = proctree.run_tree(
                 [
                     vivado_bin,
                     "-mode",
@@ -325,9 +371,6 @@ def vivado_place_and_route(
                     "-source",
                     tcl_file,
                 ],
-                capture_output=True,
-                text=True,
-                errors="replace",
                 timeout=timeout,
                 cwd=tmpdir,
             )
@@ -369,6 +412,10 @@ def vivado_place_and_route(
             "errors": parsed.get("errors", 0),
             "vivado_log": log_text,
             "stderr": proc.stderr,
+            # Same meaning as the nextpnr backend's "routed": routing finished,
+            # whether or not a bitstream followed (write_bitstream can still
+            # fail on DRC). close_timing ranks attempts on it.
+            "routed": ok or bool(_RE_ROUTE_DONE.search(proc.stdout)),
         }
         if log_truncated:
             result["logs_truncated"] = True

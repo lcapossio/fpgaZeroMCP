@@ -69,6 +69,7 @@ src/fpgazero_mcp/      The one installed package — nothing else goes on sys.pa
     build_manager.py   Background build management (start/status/cancel)
     build_parser.py    Single-pass build log parser (Yosys/nextpnr/Vivado/Quartus/GHDL)
     workspace.py       Temporary workspace context manager
+    proctree.py        Run/terminate a tool's whole process tree (timeouts, cancel)
     *.md               Per-tool documentation
   registry/
     manifest.py        Dataclass schema and validation for core.json
@@ -89,6 +90,7 @@ tests/
   test_timing_closure.py     Timing-closure sweep: attempt planning, best-of-N, reuse
   test_paths.py              Runtime state stays out of the installed package
   test_real_logs.py          build_parser against real captured tool logs
+  test_review_fixes.py       Regressions from the v0.8 pre-merge review
   fixtures/logs/             Real tool output (hostnames and paths scrubbed)
 ```
 

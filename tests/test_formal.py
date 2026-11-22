@@ -12,6 +12,8 @@ import subprocess
 
 import pytest
 
+from fpgazero_mcp.tools import proctree
+
 from fpgazero_mcp.tools.formal import (
     ENGINES,
     MODES,
@@ -96,7 +98,7 @@ def _mock_sby(monkeypatch, stdout, returncode=0):
     def fake_run(cmd, **kwargs):
         return _Proc(stdout=stdout, returncode=returncode)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(proctree, "run_tree", fake_run)
 
 
 # --- log parsing ----------------------------------------------------------
@@ -221,7 +223,10 @@ class TestValidation:
         for mode in MODES:
             for engine in ENGINES:
                 r = formal_verify(code=DESIGN, mode=mode, engine=engine)
-                assert r.get("error_code") != "invalid_input", (mode, engine)
+                # sby's live mode only runs on aiger suprove.
+                valid = mode != "live" or engine == "aiger-suprove"
+                rejected = r.get("error_code") == "invalid_input"
+                assert rejected is not valid, (mode, engine)
 
 
 # --- end-to-end behaviour with a mocked sby -------------------------------
@@ -275,7 +280,7 @@ class TestFormalVerify:
         def boom(cmd, **kwargs):
             raise FileNotFoundError()
 
-        monkeypatch.setattr(subprocess, "run", boom)
+        monkeypatch.setattr(proctree, "run_tree", boom)
         r = formal_verify(code=DESIGN)
         assert r["error_code"] == "tool_not_found"
         assert "sby" in r["error"]
@@ -284,7 +289,7 @@ class TestFormalVerify:
         def boom(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd="sby", timeout=1)
 
-        monkeypatch.setattr(subprocess, "run", boom)
+        monkeypatch.setattr(proctree, "run_tree", boom)
         r = formal_verify(code=DESIGN, timeout=1)
         assert r["error_code"] == "timeout"
 
@@ -306,7 +311,7 @@ class TestFormalVerify:
             captured["cmd"] = cmd
             return _Proc(stdout=SBY_PASS, returncode=0)
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(proctree, "run_tree", fake_run)
         r = formal_verify(code=DESIGN, mode="bmc", depth=7, top_module="top")
         assert r["success"] is True
         assert captured["cmd"][0] == "sby"

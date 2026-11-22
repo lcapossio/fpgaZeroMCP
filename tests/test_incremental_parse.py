@@ -322,6 +322,7 @@ class TestWindowsLaunchers:
         bat.chmod(0o755)  # shutil.which needs the exec bit on POSIX
         return bat
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="cmd.exe is Windows-only")
     def test_batch_file_rejects_cmd_metacharacters(self, tmp_path: Path) -> None:
         from fpgazero_mcp.tools.build_manager import _resolve_executable
 
@@ -352,3 +353,14 @@ class TestWindowsLaunchers:
 
         run, err = _resolve_executable(["no-such-tool-xyz", "a&b"], path="")
         assert err is None and run == ["no-such-tool-xyz", "a&b"]
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX lookup")
+    def test_posix_command_is_left_to_popen(self, tmp_path: Path) -> None:
+        """A relative PATH entry must still be searched from the child's cwd."""
+        from fpgazero_mcp.tools.build_manager import _resolve_executable
+
+        tool = tmp_path / "yosys"
+        tool.write_text("#!/bin/sh\n")
+        tool.chmod(0o755)
+        run, err = _resolve_executable(["yosys", "-V"], path=str(tmp_path))
+        assert err is None and run == ["yosys", "-V"]
