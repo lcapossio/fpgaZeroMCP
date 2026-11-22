@@ -750,14 +750,24 @@ def _have(*bins: str) -> bool:
     return all(shutil.which(b) for b in bins)
 
 
+# Inputs are registered so there is a clk-to-clk path: without one nextpnr
+# prints no "Max frequency" line and a sweep has nothing to rank or close on.
 ICE40_DESIGN = """\
 module top(input wire clk, input wire [7:0] a, input wire [7:0] b,
            output reg [15:0] y);
-  always @(posedge clk) y <= a * b + {a[3:0], b[3:0]};
+  reg [7:0] ra, rb;
+  always @(posedge clk) begin
+    ra <= a;
+    rb <= b;
+    y <= ra * rb + {ra[3:0], rb[3:0]};
+  end
 endmodule
 """
 
+# Only the clock is pinned; nextpnr-ice40 rejects a PCF that leaves IOs
+# unconstrained unless told to place them itself.
 ICE40_PCF = "set_io clk 35\n"
+ICE40_ARGS = ["--pcf-allow-unconstrained"]
 
 
 @pytest.mark.integration
@@ -772,6 +782,7 @@ def test_sweep_runs_real_seeds_and_reuses_netlist() -> None:
         device="up5k",
         package="sg48",
         constraints=ICE40_PCF,
+        nextpnr_args=ICE40_ARGS,
         # Unreachably high, so no attempt short-circuits the sweep.
         target_mhz=5000.0,
         max_attempts=2,
@@ -800,6 +811,7 @@ def test_sweep_closes_a_trivial_target() -> None:
         device="up5k",
         package="sg48",
         constraints=ICE40_PCF,
+        nextpnr_args=ICE40_ARGS,
         target_mhz=1.0,
         max_attempts=4,
         timeout=300,

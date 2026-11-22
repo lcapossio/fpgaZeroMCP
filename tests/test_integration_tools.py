@@ -174,6 +174,7 @@ def test_place_and_route_ice40() -> None:
         timeout=30,
     )
     assert result.get("stage") == "place_and_route"
+    assert result["success"] is True, result.get("pnr_stderr") or result.get("error")
 
 
 @pytest.mark.integration
